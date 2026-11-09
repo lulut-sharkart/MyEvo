@@ -1,0 +1,6 @@
+{
+  "name": "MyEvo",
+  "description": "Asisten cerdas harian all-in-one: kelola jadwal, to-do list prioritas, pengingat tenggat waktu, kalender interaktif hari libur nasional, kalkulator anggaran & keuangan bulanan, catatan utang piutang, catatan harian terenkripsi PIN, modul belajar bahasa & teka-teki silang harian, AI photo studio, papan peringkat & tantangan mingguan, serta cloud sync dan mode offline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
