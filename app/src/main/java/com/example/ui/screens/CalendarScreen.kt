@@ -199,10 +199,27 @@ fun CalendarScreen(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Menampilkan $holidaysCount hari libur nasional resmi untuk ${userProfile.selectedCountry}. Kalender secara otomatis menyesuaikan hari libur bila lokasi diubah.",
+                            text = "Menampilkan $holidaysCount hari libur nasional resmi untuk ${userProfile.selectedCountry}. Diperbarui otomatis dari HolidayCalendarProvider API & tersimpan di database Room.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.setCountry(userProfile.countryCode, userProfile.selectedCountry.substringBefore(" ("))
+                                },
+                                modifier = Modifier.testTag("btn_sync_holiday_api")
+                            ) {
+                                Icon(Icons.Default.Sync, contentDescription = "Sync", modifier = Modifier.size(16.dp), tint = ElectricCyan)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Sinkronkan Hari Libur API", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }

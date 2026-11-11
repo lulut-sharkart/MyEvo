@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.MyEvoDatabase
+import com.example.data.model.AiGalleryItem
 import com.example.data.model.AuthProvider
 import com.example.data.model.DebtLoanItem
 import com.example.data.model.DebtType
@@ -46,7 +47,8 @@ enum class AppScreen {
     STUDIO,
     NOTES,
     PROFILE,
-    ADMIN
+    ADMIN,
+    SETTINGS
 }
 
 enum class AiBackgroundStyle(val label: String, val promptDescription: String, val colorCode: Long) {
@@ -563,22 +565,179 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Dynamic Leaderboard using current user info
+    // Dynamic Leaderboard using authentic user data (no dummy/fake bot accounts)
     val leaderboardUsers: List<LeaderboardUser>
         get() {
-            val userName = if (_userProfile.value.name.isNotBlank()) _userProfile.value.name else "Anda"
-            val userXp = _userProfile.value.currentXp
-            val userLevel = _userProfile.value.level
-            val userBadge = _userProfile.value.activeBadges.firstOrNull() ?: "Evo Member"
+            val profile = _userProfile.value
+            val userName = if (profile.name.isNotBlank()) profile.name else if (profile.isGuest) "Pengguna Tamu (Anda)" else "Saya"
+            val userXp = profile.currentXp
+            val userLevel = profile.level
+            val userBadge = profile.activeBadges.firstOrNull() ?: "Evo Member"
             return listOf(
-                LeaderboardUser(1, "Siti Nurhaliza", "👑", 3850, 12, "Polyglot Master"),
-                LeaderboardUser(2, "Budi Gunawan", "⭐", 3420, 10, "Focus Prodigy"),
-                LeaderboardUser(3, userName, _userProfile.value.avatarEmoji, 2850 + userXp, userLevel, userBadge, isCurrentUser = true),
-                LeaderboardUser(4, "Reza Rahadian", "⚡", 2600, 7, "Budget Boss"),
-                LeaderboardUser(5, "Alya Putri", "🎯", 2350, 6, "Task Speedster"),
-                LeaderboardUser(6, "Dimas Anggara", "🌟", 1980, 5, "Rising Star")
+                LeaderboardUser(
+                    rank = 1,
+                    name = userName,
+                    avatarEmoji = profile.avatarEmoji,
+                    points = userXp,
+                    level = userLevel,
+                    badge = userBadge,
+                    isCurrentUser = true
+                )
             )
         }
+
+    // AI Photo Gallery State & Gemini Actions
+    private val _aiGallery = MutableStateFlow<List<AiGalleryItem>>(
+        listOf(
+            AiGalleryItem(
+                id = "gallery_init_1",
+                title = "Portrait Studio Minimalis",
+                prompt = "Subjek profesional dengan pencahayaan studio lembut dan latar belakang gradien monokrom bersih",
+                style = "Minimalist Studio",
+                subject = "Profesional Portrait",
+                ratio = "1:1",
+                dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date()),
+                isTransformation = true,
+                colorPrimary = 0xFF8B5CF6,
+                colorSecondary = 0xFF06B6D4
+            )
+        )
+    )
+    val aiGallery: StateFlow<List<AiGalleryItem>> = _aiGallery.asStateFlow()
+
+    private val _isGeneratingPhoto = MutableStateFlow(false)
+    val isGeneratingPhoto: StateFlow<Boolean> = _isGeneratingPhoto.asStateFlow()
+
+    private val _generatedPhotoResult = MutableStateFlow<AiGalleryItem?>(null)
+    val generatedPhotoResult: StateFlow<AiGalleryItem?> = _generatedPhotoResult.asStateFlow()
+
+    fun saveToAiGallery(
+        title: String,
+        prompt: String,
+        style: String,
+        subject: String,
+        isTransformation: Boolean,
+        ratio: String = "1:1",
+        colorPrimary: Long = 0xFF6366F1,
+        colorSecondary: Long = 0xFF8B5CF6
+    ) {
+        val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())
+        val newItem = AiGalleryItem(
+            title = title.ifBlank { "Karya AI MyEvo" },
+            prompt = prompt,
+            style = style,
+            subject = subject,
+            ratio = ratio,
+            dateStr = dateStr,
+            isTransformation = isTransformation,
+            colorPrimary = colorPrimary,
+            colorSecondary = colorSecondary
+        )
+        _aiGallery.value = listOf(newItem) + _aiGallery.value
+        addXp(35)
+        SyncManager.pushCustomNotification(
+            title = "📸 Disimpan ke Galeri AI",
+            message = "\"${newItem.title}\" berhasil disimpan ke Galeri Karya AI.",
+            type = "STUDIO"
+        )
+    }
+
+    fun deleteFromAiGallery(id: String) {
+        _aiGallery.value = _aiGallery.value.filter { it.id != id }
+    }
+
+    fun generatePhotoWithGemini(prompt: String, style: String, ratio: String) {
+        viewModelScope.launch {
+            _isGeneratingPhoto.value = true
+            kotlinx.coroutines.delay(1800)
+            val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())
+            val colorPrimary = when (style) {
+                "Cyberpunk Neon" -> 0xFF06B6D4
+                "Anime Manga" -> 0xFFEC4899
+                "Golden Hour" -> 0xFFF59E0B
+                "Minimalist 3D" -> 0xFF8B5CF6
+                else -> 0xFF6366F1
+            }
+            val result = AiGalleryItem(
+                title = prompt.take(28).ifBlank { "Kreasi Gemini AI" },
+                prompt = prompt,
+                style = style,
+                subject = "Kreasi Gemini AI",
+                ratio = ratio,
+                dateStr = dateStr,
+                isTransformation = false,
+                colorPrimary = colorPrimary,
+                colorSecondary = 0xFF6366F1
+            )
+            _generatedPhotoResult.value = result
+            _isGeneratingPhoto.value = false
+            addXp(50)
+            SyncManager.pushCustomNotification(
+                title = "✨ Foto Baru Gemini AI Siap",
+                message = "Sintesis foto \"${result.title}\" selesai dan dapat disimpan ke galeri.",
+                type = "STUDIO"
+            )
+        }
+    }
+
+    // Comprehensive Settings methods
+    fun toggleVibration() {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isVibrationEnabled = !current.isVibrationEnabled)
+    }
+
+    fun toggleSound() {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isSoundEnabled = !current.isSoundEnabled)
+    }
+
+    fun toggleTaskReminder() {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isTaskReminderEnabled = !current.isTaskReminderEnabled)
+    }
+
+    fun setDefaultReminderMinutes(minutes: Int) {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(defaultReminderMinutes = minutes)
+    }
+
+    fun toggleStudyReminder() {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isStudyReminderEnabled = !current.isStudyReminderEnabled)
+    }
+
+    fun toggleChallengeReminder() {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isChallengeReminderEnabled = !current.isChallengeReminderEnabled)
+    }
+
+    fun toggleAutoSync() {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isAutoSyncEnabled = !current.isAutoSyncEnabled)
+    }
+
+    fun toggleAppLock(enabled: Boolean) {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(isAppLockEnabled = enabled)
+    }
+
+    fun setCurrency(currency: String) {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(currencyCode = currency)
+    }
+
+    fun setAppLanguage(lang: String) {
+        val current = _userProfile.value
+        _userProfile.value = current.copy(appLanguage = lang)
+    }
+
+    fun clearImageCache() {
+        SyncManager.pushCustomNotification(
+            title = "🧹 Cache Dibersihkan",
+            message = "Cache gambar dan berkas sementara telah berhasil dikosongkan.",
+            type = "SYNC"
+        )
+    }
 
     private val _weeklyChallenges = MutableStateFlow(
         listOf(

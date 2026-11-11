@@ -28,7 +28,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MilitaryTech
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Button
@@ -40,6 +42,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -49,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +64,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.example.data.model.LeaderboardUser
 import com.example.data.model.WeeklyChallenge
 import com.example.ui.components.AppHeader
@@ -286,7 +291,8 @@ fun ProfileLeaderboardScreen(
                                         modifier = Modifier.padding(10.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Text("🏅 #3", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AmberGold)
+                                        val currentRank = leaderboard.firstOrNull { it.isCurrentUser }?.rank ?: 1
+                                        Text("🏅 #$currentRank", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = AmberGold)
                                         Text("Peringkat Global", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
@@ -301,9 +307,10 @@ fun ProfileLeaderboardScreen(
                         onClick = {
                             val sendIntent = Intent().apply {
                                 action = Intent.ACTION_SEND
+                                val userRank = leaderboard.firstOrNull { it.isCurrentUser }?.rank ?: 1
                                 putExtra(
                                     Intent.EXTRA_TEXT,
-                                    "🔥 Pencapaian MyEvo: Saya sudah mempertahankan streak ${userProfile.streakDays} hari dan menyelesaikan ${userProfile.completedTasksCount} tugas di MyEvo! Peringkat Global #3. #MyEvoApp #Productivity"
+                                    "🔥 Pencapaian MyEvo: Saya sudah mempertahankan streak ${userProfile.streakDays} hari dan menyelesaikan ${userProfile.completedTasksCount} tugas di MyEvo! Peringkat Global #$userRank. #MyEvoApp #Productivity"
                                 )
                                 type = "text/plain"
                             }
@@ -439,6 +446,23 @@ fun ProfileLeaderboardScreen(
                     }
                 }
 
+                // Settings Screen Shortcut
+                item {
+                    Button(
+                        onClick = { viewModel.navigateTo(AppScreen.SETTINGS) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .testTag("btn_open_settings"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonIndigo)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Pengaturan Lengkap Aplikasi", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
                 // Admin Panel Access Shortcut
                 item {
                     OutlinedButton(
@@ -452,6 +476,98 @@ fun ProfileLeaderboardScreen(
                         Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = NeonIndigo)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Buka Panel Admin Khusus", color = NeonIndigo)
+                    }
+                }
+
+                // AppLock & DataStore PIN Security Card
+                item {
+                    val appLockPrefs = remember { com.example.data.local.AppLockPreferences(context) }
+                    val isAppLockEnabled by appLockPrefs.isAppLockEnabled.collectAsState(initial = false)
+                    val hasPinConfigured by appLockPrefs.hasConfiguredPin.collectAsState(initial = false)
+                    val coroutineScope = rememberCoroutineScope()
+                    var showSetPinModal by remember { mutableStateOf(false) }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .testTag("app_lock_security_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(NeonIndigo.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Lock, contentDescription = null, tint = NeonIndigo, modifier = Modifier.size(18.dp))
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Kunci Aplikasi (AppLock)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(
+                                            text = if (isAppLockEnabled) "Aktif saat resume aplikasi" else "Nonaktif (Tanpa PIN)",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = isAppLockEnabled,
+                                    onCheckedChange = { checked ->
+                                        if (checked && !hasPinConfigured) {
+                                            showSetPinModal = true
+                                        } else {
+                                            coroutineScope.launch {
+                                                appLockPrefs.setAppLockEnabled(checked)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("app_lock_switch")
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedButton(
+                                onClick = { showSetPinModal = true },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_configure_pin")
+                            ) {
+                                Text(
+                                    text = if (hasPinConfigured) "Ganti 4-Digit PIN (Terenkripsi DataStore)" else "Buat 4-Digit PIN Keamanan Baru",
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+
+                    if (showSetPinModal) {
+                        androidx.compose.ui.window.Dialog(onDismissRequest = { showSetPinModal = false }) {
+                            PinLockScreen(
+                                mode = PinLockMode.SET_NEW_PIN,
+                                onUnlockSuccess = {
+                                    showSetPinModal = false
+                                },
+                                onCancel = {
+                                    showSetPinModal = false
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -502,13 +618,13 @@ fun ProfileLeaderboardScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "🏆 Papan Peringkat Global Mingguan",
+                                text = "🏆 Papan Peringkat Pengguna Riil MyEvo",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Kompetisi sehat antar seluruh pengguna aktif MyEvo di seluruh dunia.",
+                                text = "Peringkat autentik berbasis capaian XP & level riil. Bebas dari data dummy/bot.",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

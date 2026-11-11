@@ -46,21 +46,36 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.data.local.AppLockPreferences
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.LoginScreen
+import com.example.ui.screens.PinLockMode
+import com.example.ui.screens.PinLockScreen
 import com.example.ui.screens.CalendarScreen
 import com.example.ui.screens.FinanceScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LanguageScreen
 import com.example.ui.screens.NotesScreen
+import com.example.ui.screens.AIPhotoStudioScreen
 import com.example.ui.screens.ProfileLeaderboardScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StudioScreen
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.MyEvoTheme
 import com.example.ui.theme.NeonIndigo
 import com.example.viewmodel.AppScreen
 import com.example.viewmodel.MyEvoViewModel
+import com.example.worker.WorkManagerHelper
 
 data class BottomNavItem(
     val screen: AppScreen,
@@ -75,28 +90,58 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        WorkManagerHelper.schedulePeriodicDeadlineCheck(this)
         setContent {
             val userProfile by viewModel.userProfile.collectAsState()
             val currentScreen by viewModel.currentScreen.collectAsState()
+
+            val context = LocalContext.current
+            val appLockPrefs = remember { AppLockPreferences(context) }
+            val isAppLockEnabled by appLockPrefs.isAppLockEnabled.collectAsState(initial = false)
+            val hasConfiguredPin by appLockPrefs.hasConfiguredPin.collectAsState(initial = false)
+
+            var isAppLocked by remember { mutableStateOf(false) }
+            var pausedTimestamp by remember { mutableLongStateOf(0L) }
+
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner, isAppLockEnabled, hasConfiguredPin) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_PAUSE) {
+                        pausedTimestamp = System.currentTimeMillis()
+                    } else if (event == Lifecycle.Event.ON_RESUME) {
+                        if (isAppLockEnabled && hasConfiguredPin && (System.currentTimeMillis() - pausedTimestamp > 1500L) && pausedTimestamp != 0L) {
+                            isAppLocked = true
+                        }
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
 
             MyEvoTheme(
                 darkTheme = userProfile.isDarkMode,
                 readingMode = userProfile.isReadingMode
             ) {
-                // BackHandler to return to HOME when in other tabs
-                BackHandler(enabled = currentScreen != AppScreen.HOME && currentScreen != AppScreen.AUTH) {
-                    viewModel.navigateTo(AppScreen.HOME)
-                }
+                if (isAppLocked) {
+                    PinLockScreen(
+                        mode = PinLockMode.AUTHENTICATE,
+                        onUnlockSuccess = { isAppLocked = false }
+                    )
+                } else {
+                    // BackHandler to return to HOME when in other tabs
+                    BackHandler(enabled = currentScreen != AppScreen.HOME && currentScreen != AppScreen.AUTH) {
+                        viewModel.navigateTo(AppScreen.HOME)
+                    }
 
-                val navItems = listOf(
-                    BottomNavItem(AppScreen.HOME, "Tugas", Icons.Default.CheckCircle, "nav_home"),
-                    BottomNavItem(AppScreen.CALENDAR, "Kalender", Icons.Default.CalendarMonth, "nav_calendar"),
-                    BottomNavItem(AppScreen.FINANCE, "Keuangan", Icons.Default.Payments, "nav_finance"),
-                    BottomNavItem(AppScreen.LEARN, "Belajar", Icons.Default.School, "nav_learn"),
-                    BottomNavItem(AppScreen.STUDIO, "Studio AI", Icons.Default.AutoAwesome, "nav_studio"),
-                    BottomNavItem(AppScreen.NOTES, "Catatan", Icons.Default.Lock, "nav_notes"),
-                    BottomNavItem(AppScreen.PROFILE, "Profil", Icons.Default.AccountCircle, "nav_profile")
-                )
+                    val navItems = listOf(
+                        BottomNavItem(AppScreen.HOME, "Tugas", Icons.Default.CheckCircle, "nav_home"),
+                        BottomNavItem(AppScreen.CALENDAR, "Kalender", Icons.Default.CalendarMonth, "nav_calendar"),
+                        BottomNavItem(AppScreen.FINANCE, "Keuangan", Icons.Default.Payments, "nav_finance"),
+                        BottomNavItem(AppScreen.LEARN, "Belajar", Icons.Default.School, "nav_learn"),
+                        BottomNavItem(AppScreen.PROFILE, "Profil", Icons.Default.AccountCircle, "nav_profile")
+                    )
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -167,13 +212,15 @@ class MainActivity : ComponentActivity() {
                                 AppScreen.CALENDAR -> CalendarScreen(viewModel = viewModel)
                                 AppScreen.FINANCE -> FinanceScreen(viewModel = viewModel)
                                 AppScreen.LEARN -> LanguageScreen(viewModel = viewModel)
-                                AppScreen.STUDIO -> StudioScreen(viewModel = viewModel)
+                                AppScreen.STUDIO -> AIPhotoStudioScreen(viewModel = viewModel, onBack = { viewModel.navigateTo(AppScreen.HOME) })
                                 AppScreen.NOTES -> NotesScreen(viewModel = viewModel)
                                 AppScreen.PROFILE -> ProfileLeaderboardScreen(viewModel = viewModel)
                                 AppScreen.ADMIN -> AdminScreen(viewModel = viewModel)
+                                AppScreen.SETTINGS -> SettingsScreen(viewModel = viewModel, onBack = { viewModel.navigateTo(AppScreen.HOME) })
                             }
                         }
                     }
+                }
                 }
             }
         }

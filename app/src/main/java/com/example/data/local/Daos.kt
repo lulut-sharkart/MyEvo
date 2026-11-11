@@ -10,6 +10,7 @@ import com.example.data.model.DebtLoanItem
 import com.example.data.model.DictionaryWord
 import com.example.data.model.EncryptedNote
 import com.example.data.model.FinanceItem
+import com.example.data.model.LanguageLearningEntity
 import com.example.data.model.ScheduleEvent
 import com.example.data.model.TaskItem
 import kotlinx.coroutines.flow.Flow
@@ -123,4 +124,37 @@ interface DictionaryDao {
 
     @Query("SELECT COUNT(*) FROM dictionary_words")
     suspend fun getWordCount(): Int
+}
+
+@Dao
+interface LanguageLearningDao {
+    @Query("SELECT * FROM language_learning ORDER BY isMastered ASC, masteryLevel ASC, id DESC")
+    fun getAllVocabulary(): Flow<List<LanguageLearningEntity>>
+
+    @Query("SELECT * FROM language_learning WHERE language = :lang ORDER BY isMastered ASC, masteryLevel ASC")
+    fun getVocabularyByLanguage(lang: String): Flow<List<LanguageLearningEntity>>
+
+    @Query("SELECT * FROM language_learning WHERE word LIKE '%' || :query || '%' OR translation LIKE '%' || :query || '%'")
+    fun searchVocabulary(query: String): Flow<List<LanguageLearningEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWord(word: LanguageLearningEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWords(words: List<LanguageLearningEntity>)
+
+    @Update
+    suspend fun updateWord(word: LanguageLearningEntity)
+
+    @Delete
+    suspend fun deleteWord(word: LanguageLearningEntity)
+
+    @Query("UPDATE language_learning SET masteryLevel = :level, isMastered = :mastered, reviewCount = :reviews, lastReviewedAt = :timestamp WHERE id = :id")
+    suspend fun updateMastery(id: Long, level: Int, mastered: Boolean, reviews: Int, timestamp: Long)
+
+    @Query("SELECT COUNT(*) FROM language_learning")
+    suspend fun getWordCount(): Int
+
+    @Query("DELETE FROM language_learning")
+    suspend fun clearAll()
 }

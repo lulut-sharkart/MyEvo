@@ -110,6 +110,24 @@ data class DictionaryWord(
     val category: String = "Daily"
 )
 
+@Entity(tableName = "language_learning")
+data class LanguageLearningEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val word: String,
+    val translation: String,
+    val language: String, // "English", "Japanese", "Korean", "German"
+    val phonetic: String = "",
+    val exampleSentence: String = "",
+    val exampleTranslation: String = "",
+    val category: String = "Daily",
+    val masteryLevel: Int = 0, // 0 to 5
+    val isMastered: Boolean = false,
+    val reviewCount: Int = 0,
+    val lastReviewedAt: Long = 0L,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 data class CrosswordClue(
     val number: Int,
     val direction: String, // "ACROSS" or "DOWN"
@@ -155,11 +173,33 @@ data class UserProfile(
     val isAutoSyncEnabled: Boolean = true,
     val isOnline: Boolean = true,
     val lastSyncTimestamp: String = "Belum sinkron",
-    val activeBadges: List<String> = listOf("Evo Explorer")
+    val activeBadges: List<String> = listOf("Evo Explorer"),
+    val isVibrationEnabled: Boolean = true,
+    val isSoundEnabled: Boolean = true,
+    val isTaskReminderEnabled: Boolean = true,
+    val defaultReminderMinutes: Int = 30,
+    val isStudyReminderEnabled: Boolean = true,
+    val isChallengeReminderEnabled: Boolean = true,
+    val isAppLockEnabled: Boolean = false,
+    val currencyCode: String = "IDR",
+    val appLanguage: String = "id"
 ) {
     val isGuest: Boolean get() = authProvider == AuthProvider.GUEST
     val isLoggedIn: Boolean get() = authProvider != AuthProvider.NONE
 }
+
+data class AiGalleryItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String,
+    val prompt: String,
+    val style: String,
+    val subject: String,
+    val ratio: String = "1:1",
+    val dateStr: String,
+    val isTransformation: Boolean = true,
+    val colorPrimary: Long = 0xFF6366F1,
+    val colorSecondary: Long = 0xFF8B5CF6
+)
 
 data class LeaderboardUser(
     val rank: Int,

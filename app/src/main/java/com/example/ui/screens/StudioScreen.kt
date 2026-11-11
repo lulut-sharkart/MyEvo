@@ -268,50 +268,69 @@ fun StudioScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                AiBackgroundStyle.values().forEach { style ->
-                    val isSel = selectedBg == style
-                    Card(
+                // 2-Column Responsive Grid for AI Background Styles
+                AiBackgroundStyle.values().toList().chunked(2).forEach { pairStyles ->
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable { viewModel.setAiBackground(style) }
-                            .testTag("bg_style_${style.name}"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSel) NeonIndigo.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
-                        ),
-                        border = if (isSel) androidx.compose.foundation.BorderStroke(1.5.dp, NeonIndigo) else null
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
+                        pairStyles.forEach { style ->
+                            val isSel = selectedBg == style
+                            Card(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(style.colorCode))
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = style.label,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = style.promptDescription,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { viewModel.setAiBackground(style) }
+                                    .testTag("bg_style_${style.name}"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSel) NeonIndigo.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (isSel) androidx.compose.foundation.BorderStroke(1.5.dp, NeonIndigo) else androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(style.colorCode))
+                                        )
+                                        if (isSel) {
+                                            StatusPill(text = "Aktif", color = NeonIndigo)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = style.label,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = style.promptDescription,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        lineHeight = 13.sp
+                                    )
+                                }
                             }
-                            if (isSel) {
-                                StatusPill(text = "Dipilih", color = NeonIndigo)
-                            }
+                        }
+                        if (pairStyles.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }

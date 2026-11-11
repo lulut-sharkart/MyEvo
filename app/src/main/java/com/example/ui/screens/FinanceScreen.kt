@@ -340,6 +340,59 @@ fun FinanceScreen(
                             }
                         }
                     }
+
+                    // 2x2 Grid Second Row: Utang & Piutang
+                    val totalDebt = debtsLoans.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.amount }
+                    val totalLoan = debtsLoans.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.amount }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = AmberGold.copy(alpha = 0.12f))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("🤝", fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Utang Aktif", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AmberGold)
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = currencyFormatter.format(totalDebt),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = ElectricCyan.copy(alpha = 0.12f))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("📥", fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Piutang Tagihan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = currencyFormatter.format(totalLoan),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Category Distribution Chart Breakdown

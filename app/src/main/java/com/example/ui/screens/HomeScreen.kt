@@ -196,6 +196,70 @@ fun HomeScreen(
                 }
             }
 
+            // Quick Access Action Grid
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "Akses Cepat Fitur:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+
+                    val quickNavItems = listOf(
+                        Triple("Kalender", "📅", com.example.viewmodel.AppScreen.CALENDAR),
+                        Triple("Anggaran", "💰", com.example.viewmodel.AppScreen.FINANCE),
+                        Triple("Bahasa AI", "🌐", com.example.viewmodel.AppScreen.LEARN),
+                        Triple("Studio Foto", "🎨", com.example.viewmodel.AppScreen.STUDIO),
+                        Triple("Catatan", "🔐", com.example.viewmodel.AppScreen.NOTES),
+                        Triple("Pengaturan", "⚙️", com.example.viewmodel.AppScreen.SETTINGS)
+                    )
+
+                    quickNavItems.chunked(3).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { (title, emoji, screen) ->
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { viewModel.navigateTo(screen) }
+                                        .testTag("quick_nav_${screen.name}"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(emoji, fontSize = 20.sp)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = title,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Smart Priority Reminder Alert Banner (Approaching Deadline)
             if (highPriorityPending.isNotEmpty()) {
                 item {

@@ -18,9 +18,10 @@ import com.example.data.model.TaskItem
         FinanceItem::class,
         DebtLoanItem::class,
         EncryptedNote::class,
-        DictionaryWord::class
+        DictionaryWord::class,
+        com.example.data.model.LanguageLearningEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class MyEvoDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class MyEvoDatabase : RoomDatabase() {
     abstract fun financeDao(): FinanceDao
     abstract fun noteDao(): NoteDao
     abstract fun dictionaryDao(): DictionaryDao
+    abstract fun languageLearningDao(): LanguageLearningDao
 
     companion object {
         @Volatile

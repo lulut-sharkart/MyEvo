@@ -17,24 +17,15 @@ class MyEvoRepository(private val database: MyEvoDatabase) {
     private val noteDao = database.noteDao()
     private val dictionaryDao = database.dictionaryDao()
 
-    // Tasks
-    val allTasks: Flow<List<TaskItem>> = taskDao.getAllTasks()
+    // Tasks abstraction via TaskRepository
+    val taskRepository = TaskRepository(taskDao)
+    val allTasks: Flow<List<TaskItem>> = taskRepository.allTasks
 
-    suspend fun insertTask(task: TaskItem): Long {
-        val id = taskDao.insertTask(task)
-        if (task.priority == TaskPriority.HIGH) {
-            SyncManager.pushCustomNotification(
-                title = "⚡ Pengingat Prioritas: ${task.title}",
-                message = "Tenggat waktu ${task.dueDate} pukul ${task.dueTime}.",
-                type = "REMINDER"
-            )
-        }
-        return id
-    }
-
-    suspend fun updateTask(task: TaskItem) = taskDao.updateTask(task)
-    suspend fun deleteTask(task: TaskItem) = taskDao.deleteTask(task)
-    suspend fun setTaskCompleted(id: Long, completed: Boolean) = taskDao.setTaskCompleted(id, completed)
+    suspend fun insertTask(task: TaskItem): Long = taskRepository.insertTask(task)
+    suspend fun updateTask(task: TaskItem) = taskRepository.updateTask(task)
+    suspend fun deleteTask(task: TaskItem) = taskRepository.deleteTask(task)
+    suspend fun setTaskCompleted(id: Long, completed: Boolean) = taskRepository.setTaskCompleted(id, completed)
+    suspend fun clearAllTasks() = taskRepository.clearAllTasks()
 
     // Schedule & Holidays
     val allEvents: Flow<List<ScheduleEvent>> = scheduleDao.getAllEvents()
@@ -44,9 +35,11 @@ class MyEvoRepository(private val database: MyEvoDatabase) {
     suspend fun insertEvent(event: ScheduleEvent) = scheduleDao.insertEvent(event)
     suspend fun deleteEvent(event: ScheduleEvent) = scheduleDao.deleteEvent(event)
 
+    // Holiday Calendar Provider with API & Local Room Sync
+    val holidayCalendarProvider = HolidayCalendarProvider(scheduleDao)
+
     suspend fun syncHolidaysForCountry(countryCode: String, year: Int = 2026) {
-        val holidays = HolidayProvider.getHolidaysForCountry(countryCode, year)
-        scheduleDao.insertEvents(holidays)
+        holidayCalendarProvider.fetchAndSyncHolidays(countryCode, year)
     }
 
     // Finance & Debts
