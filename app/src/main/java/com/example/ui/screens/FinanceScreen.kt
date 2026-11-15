@@ -24,10 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Money
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
@@ -37,12 +39,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -50,6 +55,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,6 +84,7 @@ import com.example.ui.theme.EmeraldGreen
 import com.example.ui.theme.NeonIndigo
 import com.example.ui.theme.PriorityHigh
 import com.example.ui.theme.SunsetPink
+import com.example.viewmodel.CategorizationUiState
 import com.example.viewmodel.MyEvoViewModel
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -94,11 +101,13 @@ fun FinanceScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     val isOnline by viewModel.isOnline.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
+    val categorizationState by viewModel.categorizationUiState.collectAsState()
 
     var activeTab by remember { mutableStateOf(0) } // 0: Anggaran & Pengeluaran, 1: Utang & Piutang
     var showAddFinanceDialog by remember { mutableStateOf(false) }
     var showAddDebtDialog by remember { mutableStateOf(false) }
     var showEditBudgetDialog by remember { mutableStateOf(false) }
+    var paymentTargetDebt by remember { mutableStateOf<DebtLoanItem?>(null) }
 
     val currencyFormatter = remember {
         NumberFormat.getCurrencyInstance(Locale.forLanguageTag("id-ID")).apply {
@@ -341,9 +350,9 @@ fun FinanceScreen(
                         }
                     }
 
-                    // 2x2 Grid Second Row: Utang & Piutang
-                    val totalDebt = debtsLoans.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.amount }
-                    val totalLoan = debtsLoans.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.amount }
+                    // 2x2 Grid Second Row: Utang & Piutang (Remaining Balance)
+                    val totalDebt = debtsLoans.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.remainingAmount }
+                    val totalLoan = debtsLoans.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.remainingAmount }
 
                     Row(
                         modifier = Modifier
@@ -577,8 +586,8 @@ fun FinanceScreen(
             } else {
                 // TAB 1: UTANG & PIUTANG (DEBT & LOAN TRACKER)
                 item {
-                    val totalDebt = debtsLoans.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.amount }
-                    val totalLoan = debtsLoans.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.amount }
+                    val totalDebt = debtsLoans.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.remainingAmount }
+                    val totalLoan = debtsLoans.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.remainingAmount }
 
                     Row(
                         modifier = Modifier
@@ -677,6 +686,7 @@ fun FinanceScreen(
                             item = debtItem,
                             currencyFormatter = currencyFormatter,
                             onToggleSettled = { viewModel.toggleDebtLoanSettled(debtItem) },
+                            onRecordPaymentClick = { paymentTargetDebt = debtItem },
                             onDelete = { viewModel.deleteDebtLoan(debtItem) }
                         )
                     }
@@ -687,7 +697,12 @@ fun FinanceScreen(
         // FAB
         FloatingActionButton(
             onClick = {
-                if (activeTab == 0) showAddFinanceDialog = true else showAddDebtDialog = true
+                if (activeTab == 0) {
+                    viewModel.resetCategorizationState()
+                    showAddFinanceDialog = true
+                } else {
+                    showAddDebtDialog = true
+                }
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -701,9 +716,17 @@ fun FinanceScreen(
 
         if (showAddFinanceDialog) {
             AddFinanceDialog(
-                onDismiss = { showAddFinanceDialog = false },
+                categorizationState = categorizationState,
+                onAutoCategorize = { desc, financeType ->
+                    viewModel.categorizeExpenseWithAi(desc, financeType)
+                },
+                onDismiss = {
+                    viewModel.resetCategorizationState()
+                    showAddFinanceDialog = false
+                },
                 onAdd = { type, cat, amt, note, date ->
                     viewModel.addFinance(type, cat, amt, note, date)
+                    viewModel.resetCategorizationState()
                     showAddFinanceDialog = false
                 }
             )
@@ -729,6 +752,18 @@ fun FinanceScreen(
                 }
             )
         }
+
+        paymentTargetDebt?.let { target ->
+            RecordDebtPaymentDialog(
+                item = target,
+                currencyFormatter = currencyFormatter,
+                onDismiss = { paymentTargetDebt = null },
+                onConfirmPayment = { amt ->
+                    viewModel.recordDebtPayment(target, amt)
+                    paymentTargetDebt = null
+                }
+            )
+        }
     }
 }
 
@@ -737,107 +772,150 @@ fun DebtLoanCard(
     item: DebtLoanItem,
     currencyFormatter: NumberFormat,
     onToggleSettled: () -> Unit,
+    onRecordPaymentClick: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .testTag("debt_item_${item.id}"),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(14.dp)
         ) {
-            IconButton(
-                onClick = onToggleSettled,
-                modifier = Modifier.size(36.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (item.isSettled) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = "Settled",
-                    tint = if (item.isSettled) EmeraldGreen else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    StatusPill(
-                        text = if (item.type == DebtType.DEBT) "Utang Saya" else "Piutang Orang",
-                        color = if (item.type == DebtType.DEBT) PriorityHigh else EmeraldGreen
-                    )
-                    if (item.isSettled) {
-                        StatusPill(text = "LUNAS", color = EmeraldGreen)
-                    } else {
-                        StatusPill(text = "Jatuh Tempo: ${item.dueDate}", color = AmberGold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = item.personName,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                if (item.note.isNotBlank()) {
-                    Text(
-                        text = item.note,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                if (item.contactPhone.isNotBlank()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Phone,
-                            contentDescription = "Phone",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = item.contactPhone,
-                            fontSize = 11.sp,
-                            color = ElectricCyan
-                        )
-                    }
-                }
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = currencyFormatter.format(item.amount),
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 15.sp,
-                    color = if (item.type == DebtType.DEBT) PriorityHigh else EmeraldGreen
-                )
-
                 IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(28.dp)
+                    onClick = onToggleSettled,
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        imageVector = if (item.isSettled) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = "Settled",
+                        tint = if (item.isSettled) EmeraldGreen else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        StatusPill(
+                            text = if (item.type == DebtType.DEBT) "Utang Saya" else "Piutang Orang",
+                            color = if (item.type == DebtType.DEBT) PriorityHigh else EmeraldGreen
+                        )
+                        if (item.isSettled) {
+                            StatusPill(text = "LUNAS", color = EmeraldGreen)
+                        } else {
+                            StatusPill(text = "Jatuh Tempo: ${item.dueDate}", color = AmberGold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = item.personName,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    if (item.note.isNotBlank()) {
+                        Text(
+                            text = item.note,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (item.contactPhone.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Phone,
+                                contentDescription = "Phone",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = item.contactPhone,
+                                fontSize = 11.sp,
+                                color = ElectricCyan
+                            )
+                        }
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = currencyFormatter.format(item.amount),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
+                        color = if (item.type == DebtType.DEBT) PriorityHigh else EmeraldGreen
+                    )
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            DebtProgressBar(
+                paidAmount = item.effectivePaidAmount,
+                totalAmount = item.amount,
+                progressFraction = item.progressFraction,
+                isDebt = item.type == DebtType.DEBT,
+                isSettled = item.isSettled,
+                currencyFormatter = currencyFormatter
+            )
+
+            if (!item.isSettled) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onRecordPaymentClick,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_pay_debt_${item.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Payments,
+                        contentDescription = "Catat Pembayaran",
+                        tint = NeonIndigo,
                         modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Catat Pembayaran / Cicilan",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NeonIndigo
                     )
                 }
             }
@@ -846,7 +924,154 @@ fun DebtLoanCard(
 }
 
 @Composable
+fun DebtProgressBar(
+    paidAmount: Double,
+    totalAmount: Double,
+    progressFraction: Float,
+    isDebt: Boolean,
+    isSettled: Boolean,
+    currencyFormatter: NumberFormat,
+    modifier: Modifier = Modifier
+) {
+    val animatedProgress by animateFloatAsState(targetValue = progressFraction, label = "debt_progress")
+    val remaining = (totalAmount - paidAmount).coerceAtLeast(0.0)
+    val percent = (progressFraction * 100).toInt()
+    val barColor = when {
+        isSettled || progressFraction >= 0.85f -> EmeraldGreen
+        isDebt -> CoralOrange
+        else -> NeonIndigo
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("debt_progress_bar")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Progres Pelunasan",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            StatusPill(
+                text = if (isSettled) "100% Lunas" else "$percent% Terbayar",
+                color = barColor
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        LinearProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(9.dp)
+                .clip(RoundedCornerShape(5.dp)),
+            color = barColor,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Terbayar: ${currencyFormatter.format(paidAmount)}",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = EmeraldGreen
+            )
+            Text(
+                text = "Sisa: ${currencyFormatter.format(remaining)}",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (remaining > 0.0) PriorityHigh else EmeraldGreen
+            )
+        }
+    }
+}
+
+@Composable
+fun RecordDebtPaymentDialog(
+    item: DebtLoanItem,
+    currencyFormatter: NumberFormat,
+    onDismiss: () -> Unit,
+    onConfirmPayment: (Double) -> Unit
+) {
+    val remaining = item.remainingAmount
+    var paymentStr by remember { mutableStateOf(remaining.toLong().toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Bayar Cicilan: ${item.personName}",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Sisa tagihan saat ini: ${currencyFormatter.format(remaining)} dari total ${currencyFormatter.format(item.amount)}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0.25 to "25%", 0.50 to "50%", 1.0 to "Lunasi").forEach { (ratio, label) ->
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                paymentStr = (remaining * ratio).toLong().coerceAtLeast(1L).toString()
+                            },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = paymentStr,
+                    onValueChange = { paymentStr = it },
+                    label = { Text("Nominal Pembayaran (Rp)") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("debt_payment_amount_input")
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amt = paymentStr.toDoubleOrNull() ?: 0.0
+                    if (amt > 0.0) {
+                        onConfirmPayment(amt)
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                modifier = Modifier.testTag("btn_confirm_debt_payment")
+            ) {
+                Text("Simpan Pembayaran", color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        }
+    )
+}
+
+@Composable
 fun AddFinanceDialog(
+    categorizationState: CategorizationUiState,
+    onAutoCategorize: (description: String, financeType: FinanceType) -> Unit,
     onDismiss: () -> Unit,
     onAdd: (type: FinanceType, cat: ExpenseCategory, amount: Double, note: String, date: String) -> Unit
 ) {
@@ -856,6 +1081,12 @@ fun AddFinanceDialog(
     var note by remember { mutableStateOf("") }
     var date by remember {
         mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()))
+    }
+
+    LaunchedEffect(categorizationState) {
+        if (categorizationState is CategorizationUiState.Success) {
+            category = categorizationState.result.category
+        }
     }
 
     AlertDialog(
@@ -903,10 +1134,82 @@ fun AddFinanceDialog(
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Keterangan / Catatan") },
+                    label = { Text("Keterangan / Catatan (misal: Kopi, Listrik PLN)") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("finance_note_input")
                 )
+
+                // Gemini AI Auto-Categorization trigger button
+                Button(
+                    onClick = { onAutoCategorize(note, type) },
+                    enabled = categorizationState !is CategorizationUiState.Loading,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan.copy(alpha = 0.16f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_auto_categorize_ai")
+                ) {
+                    if (categorizationState is CategorizationUiState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = NeonIndigo
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Gemini AI sedang menganalisis...", color = NeonIndigo, fontSize = 12.sp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Auto-Kategori Gemini AI",
+                            tint = NeonIndigo,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Deteksi Kategori Otomatis (Gemini AI)",
+                            color = NeonIndigo,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                if (categorizationState is CategorizationUiState.Success) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = EmeraldGreen.copy(alpha = 0.12f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "✨ AI memilih: ${categorizationState.result.category.name} (${categorizationState.result.confidence}%)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = EmeraldGreen
+                            )
+                            Text(
+                                text = categorizationState.result.reasoning,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                } else if (categorizationState is CategorizationUiState.Error) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = categorizationState.message,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
 
                 // Category selection
                 Text("Kategori:", fontSize = 12.sp, fontWeight = FontWeight.Bold)

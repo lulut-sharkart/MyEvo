@@ -87,16 +87,16 @@ class FinanceViewModel(
         if (goal <= 0.0) 0f else (expense / goal).toFloat().coerceIn(0f, 1f)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
-    // 3. Computed Debt & Loan Totals (Active / Unsettled)
+    // 3. Computed Debt & Loan Totals (Active / Unsettled remaining balances)
     val totalDebt: StateFlow<Double> = debtsLoans
         .combine(_debtsFilter) { list, _ ->
-            list.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.amount }
+            list.filter { it.type == DebtType.DEBT && !it.isSettled }.sumOf { it.remainingAmount }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     val totalLoan: StateFlow<Double> = debtsLoans
         .combine(_debtsFilter) { list, _ ->
-            list.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.amount }
+            list.filter { it.type == DebtType.LOAN && !it.isSettled }.sumOf { it.remainingAmount }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
@@ -191,9 +191,28 @@ class FinanceViewModel(
 
     fun toggleDebtLoanSettled(item: DebtLoanItem) {
         viewModelScope.launch {
-            val updated = item.copy(isSettled = !item.isSettled)
+            val nowSettled = !item.isSettled
+            val updated = item.copy(
+                isSettled = nowSettled,
+                paidAmount = if (nowSettled) item.amount else if (item.paidAmount >= item.amount) 0.0 else item.paidAmount
+            )
             financeDao.updateDebtLoan(updated)
             _actionFeedback.value = if (updated.isSettled) "Ditandai telah lunas!" else "Status lunas dibatalkan."
+        }
+    }
+
+    fun recordDebtPayment(item: DebtLoanItem, paymentAmount: Double) {
+        if (paymentAmount <= 0.0) return
+        viewModelScope.launch {
+            val newPaid = (item.effectivePaidAmount + paymentAmount).coerceIn(0.0, item.amount)
+            val nowSettled = newPaid >= item.amount && item.amount > 0.0
+            val updated = item.copy(paidAmount = newPaid, isSettled = nowSettled)
+            financeDao.updateDebtLoan(updated)
+            _actionFeedback.value = if (nowSettled) {
+                "Selamat! Pembayaran ${item.personName} telah lunas 100%."
+            } else {
+                "Cicilan berhasil dicatat (${(updated.progressFraction * 100).toInt()}% terbayar)."
+            }
         }
     }
 

@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "UserProfileDoc": {
+      "title": "UserProfileDoc",
+      "description": "Authenticated user progression and profile metadata",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "level": { "type": "integer" },
+        "currentXp": { "type": "integer" },
+        "streakDays": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "level", "currentXp", "streakDays", "updatedAt"]
+    },
+    "TaskDoc": {
+      "title": "TaskDoc",
+      "description": "Synced user productivity task item",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "priority": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "isCompleted": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "priority", "dueDate", "isCompleted", "updatedAt"]
+    },
+    "FinanceDoc": {
+      "title": "FinanceDoc",
+      "description": "Synced user income/expense budget entry",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "note": { "type": "string" },
+        "date": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "category", "amount", "date", "updatedAt"]
+    },
+    "DebtDoc": {
+      "title": "DebtDoc",
+      "description": "Synced user debt/loan record with partial payment progress",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "personName": { "type": "string" },
+        "amount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "isSettled": { "type": "boolean" },
+        "dueDate": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "personName", "amount", "paidAmount", "isSettled", "dueDate", "updatedAt"]
+    },
+    "BadgeDoc": {
+      "title": "BadgeDoc",
+      "description": "Synced user achievement badge state",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "currentProgress": { "type": "integer" },
+        "targetProgress": { "type": "integer" },
+        "isUnlocked": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "currentProgress", "targetProgress", "isUnlocked", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "#/entities/UserProfileDoc",
+      "description": "Private user profiles isolated by UID",
+      "subcollections": {
+        "tasks": {
+          "schema": "#/entities/TaskDoc",
+          "description": "User tasks synced from Room"
+        },
+        "finance": {
+          "schema": "#/entities/FinanceDoc",
+          "description": "User budget transactions synced from Room"
+        },
+        "debts": {
+          "schema": "#/entities/DebtDoc",
+          "description": "User debt and loan records synced from Room"
+        },
+        "badges": {
+          "schema": "#/entities/BadgeDoc",
+          "description": "User earned achievement badges synced from Room"
+        }
+      }
+    }
+  }
+}

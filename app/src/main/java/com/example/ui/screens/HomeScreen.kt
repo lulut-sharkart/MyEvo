@@ -217,6 +217,9 @@ fun HomeScreen(
                         Triple("Bahasa AI", "🌐", com.example.viewmodel.AppScreen.LEARN),
                         Triple("Studio Foto", "🎨", com.example.viewmodel.AppScreen.STUDIO),
                         Triple("Catatan", "🔐", com.example.viewmodel.AppScreen.NOTES),
+                        Triple("Alat", "🧰", com.example.viewmodel.AppScreen.TOOLS),
+                        Triple("Profil", "🏆", com.example.viewmodel.AppScreen.PROFILE),
+                        Triple("Admin", "🛡️", com.example.viewmodel.AppScreen.ADMIN),
                         Triple("Pengaturan", "⚙️", com.example.viewmodel.AppScreen.SETTINGS)
                     )
 

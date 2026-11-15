@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -62,7 +63,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.AmberGold
@@ -76,6 +79,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 /**
  * LoginScreen scaffolds authentication options for MyEvo:
@@ -130,9 +134,9 @@ fun LoginScreen(
                     try {
                         val auth = FirebaseAuth.getInstance()
                         val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
-                        auth.signInWithCredential(firebaseCredential)
+                        auth.signInWithCredential(firebaseCredential).await()
                     } catch (_: Exception) {
-                        // Fallback gracefully if backend is offline or sandbox
+                        // Graceful handling if backend unavailable
                     }
 
                     viewModel.loginWithGoogle(
@@ -143,8 +147,14 @@ fun LoginScreen(
                 } else {
                     showGoogleDialog = true
                 }
+            } catch (e: GetCredentialCancellationException) {
+                Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
+                authErrorMessage = "Login Google dibatalkan. Pilih akun Google untuk melanjutkan."
+            } catch (e: NoCredentialException) {
+                Log.w("Auth", "No Google credentials available: ${e.message}", e)
+                showGoogleDialog = true
             } catch (e: Exception) {
-                // If Play Services / Web Client ID is not provisioned or canceled, fallback gracefully to interactive account selection
+                Log.e("Auth", "Google Sign-In failed", e)
                 showGoogleDialog = true
             } finally {
                 isSigningInWithCredentialManager = false

@@ -87,6 +87,8 @@ fun ProfileLeaderboardScreen(
     val isOnline by viewModel.isOnline.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val weeklyChallenges by viewModel.weeklyChallenges.collectAsState()
+    val roomBadges by viewModel.badges.collectAsState()
+    val languageStreak by viewModel.languageStreak.collectAsState()
     val leaderboard = viewModel.leaderboardUsers
     val context = LocalContext.current
 
@@ -263,7 +265,8 @@ fun ProfileLeaderboardScreen(
                                         modifier = Modifier.padding(10.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Text("🔥 ${userProfile.streakDays}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        val effectiveStreak = maxOf(userProfile.streakDays, languageStreak?.currentStreak ?: 0)
+                                        Text("🔥 $effectiveStreak", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                         Text("Hari Streak", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
@@ -330,43 +333,100 @@ fun ProfileLeaderboardScreen(
                     }
                 }
 
-                // Badges Gallery
+                // Room-Persisted Badges & Streak Achievements Gallery
                 item {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(
-                            text = "Lencana & Badge Unik (${userProfile.activeBadges.size}):",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                    val unlockedCount = roomBadges.count { it.isUnlocked }
+                    Column(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("badges_gallery_section")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Lencana & Pencapaian ($unlockedCount/${roomBadges.size} Terbuka)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            StatusPill(
+                                text = if (unlockedCount > 0) "Room Synced" else "Kumpulkan XP",
+                                color = if (unlockedCount > 0) EmeraldGreen else NeonIndigo
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(userProfile.activeBadges) { badgeName ->
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(roomBadges, key = { it.id }) { badge ->
                                 Card(
+                                    modifier = Modifier
+                                        .width(190.dp)
+                                        .testTag("badge_card_${badge.id}"),
                                     shape = RoundedCornerShape(14.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, NeonIndigo.copy(alpha = 0.3f))
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (badge.isUnlocked) {
+                                            EmeraldGreen.copy(alpha = 0.1f)
+                                        } else {
+                                            MaterialTheme.colorScheme.surface
+                                        }
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (badge.isUnlocked) EmeraldGreen.copy(alpha = 0.6f) else NeonIndigo.copy(alpha = 0.25f)
+                                    )
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(badge.iconEmoji, fontSize = 20.sp)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (badge.category == "TASK") "Tugas" else "Bahasa",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (badge.category == "TASK") NeonIndigo else CoralOrange
+                                                )
+                                            }
+                                            StatusPill(
+                                                text = if (badge.isUnlocked) "Terbuka ✓" else "+${badge.xpReward} XP",
+                                                color = if (badge.isUnlocked) EmeraldGreen else AmberGold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = when (badgeName) {
-                                                "Master of Focus" -> "🎯"
-                                                "Budget Boss" -> "💰"
-                                                "Polyglot Pro" -> "🗣️"
-                                                "Streak 14 Hari" -> "🔥"
-                                                else -> "🏆"
-                                            },
-                                            fontSize = 18.sp
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = badgeName,
+                                            text = badge.title,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
+                                            fontSize = 13.sp,
                                             color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = badge.description,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LinearProgressIndicator(
+                                            progress = { badge.progressFraction },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp)),
+                                            color = if (badge.isUnlocked) EmeraldGreen else NeonIndigo,
+                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Progres: ${badge.currentProgress}/${badge.targetProgress}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (badge.isUnlocked) EmeraldGreen else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }

@@ -16,6 +16,8 @@ class MyEvoRepository(private val database: MyEvoDatabase) {
     private val financeDao = database.financeDao()
     private val noteDao = database.noteDao()
     private val dictionaryDao = database.dictionaryDao()
+    val badgeDao = database.badgeDao()
+    val userStreakDao = database.userStreakDao()
 
     // Tasks abstraction via TaskRepository
     val taskRepository = TaskRepository(taskDao)
@@ -53,6 +55,14 @@ class MyEvoRepository(private val database: MyEvoDatabase) {
     suspend fun updateDebtLoan(debtLoan: DebtLoanItem) = financeDao.updateDebtLoan(debtLoan)
     suspend fun deleteDebtLoan(debtLoan: DebtLoanItem) = financeDao.deleteDebtLoan(debtLoan)
 
+    suspend fun recordDebtPayment(item: DebtLoanItem, paymentAmount: Double): DebtLoanItem {
+        val newPaid = (item.effectivePaidAmount + paymentAmount).coerceIn(0.0, item.amount)
+        val settled = newPaid >= item.amount && item.amount > 0.0
+        val updated = item.copy(paidAmount = newPaid, isSettled = settled)
+        financeDao.updateDebtLoan(updated)
+        return updated
+    }
+
     // Encrypted Notes
     val allNotes: Flow<List<EncryptedNote>> = noteDao.getAllNotes()
 
@@ -63,6 +73,22 @@ class MyEvoRepository(private val database: MyEvoDatabase) {
     // Dictionary
     fun getWordsByLanguage(language: String): Flow<List<DictionaryWord>> = dictionaryDao.getWordsByLanguage(language)
     fun searchWords(query: String): Flow<List<DictionaryWord>> = dictionaryDao.searchWords(query)
+
+    // Badges & Streaks
+    val allBadges = badgeDao.getAllBadges()
+    val languageStreak = userStreakDao.observeStreak(BadgeProgressHelper.KEY_LANGUAGE_STREAK)
+    val taskStreak = userStreakDao.observeStreak(BadgeProgressHelper.KEY_TASK_STREAK)
+
+    suspend fun recordTaskCompletionBadgeProgress() =
+        BadgeProgressHelper.recordTaskCompleted(badgeDao, userStreakDao)
+
+    suspend fun recordLanguageBadgeProgress(vocabDelta: Int = 1, crosswordSolved: Boolean = false) =
+        BadgeProgressHelper.recordLanguagePractice(
+            badgeDao = badgeDao,
+            streakDao = userStreakDao,
+            vocabReviewDelta = vocabDelta,
+            crosswordSolved = crosswordSolved
+        )
 
     // Clear all dummy data
     suspend fun clearAllUserData() {
@@ -80,5 +106,6 @@ class MyEvoRepository(private val database: MyEvoDatabase) {
             // Initialize official national holidays for default country
             syncHolidaysForCountry("ID", 2026)
         }
+        BadgeProgressHelper.seedDefaultBadgesIfEmpty(badgeDao, userStreakDao)
     }
 }

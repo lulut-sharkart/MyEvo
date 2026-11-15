@@ -5,9 +5,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.data.local.BadgeDao
 import com.example.data.local.LanguageLearningDao
 import com.example.data.local.MyEvoDatabase
+import com.example.data.local.UserStreakDao
+import com.example.data.model.BadgeEntity
 import com.example.data.model.LanguageLearningEntity
+import com.example.data.model.UserStreakEntity
+import com.example.data.repository.BadgeProgressHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +29,8 @@ import kotlinx.coroutines.launch
  */
 class LanguageLearningViewModel(
     private val dao: LanguageLearningDao,
+    private val badgeDao: BadgeDao? = null,
+    private val streakDao: UserStreakDao? = null,
     application: Application? = null
 ) : ViewModel() {
 
@@ -77,6 +84,16 @@ class LanguageLearningViewModel(
         if (total == 0) 0f else (mastered.toFloat() / total).coerceIn(0f, 1f)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
+    val languageStreak: StateFlow<UserStreakEntity?> = (
+        streakDao?.observeStreak(BadgeProgressHelper.KEY_LANGUAGE_STREAK)
+            ?: kotlinx.coroutines.flow.flowOf(null)
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val languageBadges: StateFlow<List<BadgeEntity>> = (
+        badgeDao?.getBadgesByCategory("LANGUAGE")
+            ?: kotlinx.coroutines.flow.flowOf(emptyList())
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init {
         seedDefaultVocabularyIfEmpty()
     }
@@ -110,6 +127,14 @@ class LanguageLearningViewModel(
                 reviews = newReviewCount,
                 timestamp = timestamp
             )
+
+            if (badgeDao != null && streakDao != null) {
+                BadgeProgressHelper.recordLanguagePractice(
+                    badgeDao = badgeDao,
+                    streakDao = streakDao,
+                    vocabReviewDelta = 1
+                )
+            }
         }
     }
 
@@ -127,6 +152,14 @@ class LanguageLearningViewModel(
                 reviews = item.reviewCount,
                 timestamp = System.currentTimeMillis()
             )
+
+            if (newMastered && badgeDao != null && streakDao != null) {
+                BadgeProgressHelper.recordLanguagePractice(
+                    badgeDao = badgeDao,
+                    streakDao = streakDao,
+                    vocabReviewDelta = 1
+                )
+            }
         }
     }
 
@@ -242,6 +275,9 @@ class LanguageLearningViewModel(
                 )
                 dao.insertWords(seedData)
             }
+            if (badgeDao != null && streakDao != null) {
+                BadgeProgressHelper.seedDefaultBadgesIfEmpty(badgeDao, streakDao)
+            }
         }
     }
 
@@ -251,7 +287,12 @@ class LanguageLearningViewModel(
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     val db = MyEvoDatabase.getDatabase(application)
-                    return LanguageLearningViewModel(db.languageLearningDao(), application) as T
+                    return LanguageLearningViewModel(
+                        dao = db.languageLearningDao(),
+                        badgeDao = db.badgeDao(),
+                        streakDao = db.userStreakDao(),
+                        application = application
+                    ) as T
                 }
             }
     }

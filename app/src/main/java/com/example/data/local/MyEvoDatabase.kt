@@ -4,12 +4,15 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.example.data.model.BadgeEntity
 import com.example.data.model.DebtLoanItem
 import com.example.data.model.DictionaryWord
 import com.example.data.model.EncryptedNote
 import com.example.data.model.FinanceItem
+import com.example.data.model.LanguageLearningEntity
 import com.example.data.model.ScheduleEvent
 import com.example.data.model.TaskItem
+import com.example.data.model.UserStreakEntity
 
 @Database(
     entities = [
@@ -19,9 +22,11 @@ import com.example.data.model.TaskItem
         DebtLoanItem::class,
         EncryptedNote::class,
         DictionaryWord::class,
-        com.example.data.model.LanguageLearningEntity::class
+        LanguageLearningEntity::class,
+        BadgeEntity::class,
+        UserStreakEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class MyEvoDatabase : RoomDatabase() {
@@ -31,6 +36,8 @@ abstract class MyEvoDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun dictionaryDao(): DictionaryDao
     abstract fun languageLearningDao(): LanguageLearningDao
+    abstract fun badgeDao(): BadgeDao
+    abstract fun userStreakDao(): UserStreakDao
 
     companion object {
         @Volatile

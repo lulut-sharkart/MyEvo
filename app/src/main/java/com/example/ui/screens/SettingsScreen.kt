@@ -44,6 +44,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.AppLockPreferences
+import com.example.data.local.PinSecurityDataStore
 import com.example.data.repository.DataExportHelper
 import com.example.data.repository.HolidayProvider
 import com.example.ui.components.AppHeader
@@ -84,6 +86,7 @@ import com.example.ui.theme.NeonIndigo
 import com.example.ui.theme.PriorityHigh
 import com.example.viewmodel.AppScreen
 import com.example.viewmodel.MyEvoViewModel
+import com.example.viewmodel.SupabaseSyncState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -104,10 +107,16 @@ fun SettingsScreen(
     val tasks by viewModel.tasks.collectAsState()
     val financeEntries by viewModel.financeEntries.collectAsState()
     val debtsLoans by viewModel.debtsLoans.collectAsState()
+    val supabaseSyncState by viewModel.supabaseSyncState.collectAsState()
+    val supabaseFetchedRecords by viewModel.supabaseFetchedRecords.collectAsState()
+    val supabaseConfig = remember { viewModel.supabaseConfigStatus }
 
     val appLockPrefs = remember { AppLockPreferences(context) }
+    val pinSecurityStore = remember { PinSecurityDataStore(context) }
     val isAppLockActive by appLockPrefs.isAppLockEnabled.collectAsState(initial = false)
     val hasConfiguredPin by appLockPrefs.hasConfiguredPin.collectAsState(initial = false)
+    val isJournalGateEnabled by pinSecurityStore.isJournalGateEnabled.collectAsState(initial = true)
+    val hasJournalPin by pinSecurityStore.hasConfiguredModulePin.collectAsState(initial = false)
 
     var showPinChangeModal by remember { mutableStateOf(false) }
     var showBudgetChangeModal by remember { mutableStateOf(false) }
@@ -292,6 +301,23 @@ fun SettingsScreen(
                         Text("Atur PIN", fontSize = 12.sp)
                     }
                 }
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = "Kunci PIN Jurnal Harian (Modul Sensitif)",
+                    subtitle = if (hasJournalPin) {
+                        "Meminta verifikasi PIN SHA-256 saat membuka Catatan Harian"
+                    } else {
+                        "PIN modul akan dibuat otomatis saat membuka Catatan"
+                    },
+                    checked = isJournalGateEnabled,
+                    onCheckedChange = { enabled ->
+                        coroutineScope.launch {
+                            pinSecurityStore.setJournalGateEnabled(enabled)
+                            statusMessage = if (enabled) "Kunci PIN modul Jurnal diaktifkan!" else "Kunci PIN modul Jurnal dinonaktifkan."
+                        }
+                    },
+                    testTag = "switch_journal_pin_gate"
+                )
             }
         }
 
@@ -402,6 +428,113 @@ fun SettingsScreen(
                         modifier = Modifier.testTag("btn_sync_now")
                     ) {
                         Text(if (isSyncing) "Menyinkronkan..." else "Sinkron", fontSize = 12.sp)
+                    }
+                }
+                SettingsDivider()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Integrasi Supabase Cloud", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                text = if (supabaseConfig.isConfigured) {
+                                    "Key aktif: ${supabaseConfig.maskedKeyPreview}"
+                                } else {
+                                    "Atur SUPABASE_URL & SUPABASE_PUBLISHABLE_KEY di panel Secrets AI Studio"
+                                },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        StatusPill(
+                            text = if (supabaseConfig.isConfigured) "Siap" else "Perlu Secrets",
+                            color = if (supabaseConfig.isConfigured) EmeraldGreen else AmberGold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.testSupabaseConnection() },
+                            enabled = supabaseSyncState !is SupabaseSyncState.Loading,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("btn_test_supabase")
+                        ) {
+                            Text("Uji Koneksi", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.fetchSupabaseInitialRecords() },
+                            enabled = supabaseSyncState !is SupabaseSyncState.Loading,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("btn_pull_supabase")
+                        ) {
+                            Text("Ambil Data", fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = { viewModel.syncDataToSupabase() },
+                            enabled = supabaseSyncState !is SupabaseSyncState.Loading,
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("btn_sync_supabase")
+                        ) {
+                            if (supabaseSyncState is SupabaseSyncState.Loading) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Text("Push Data", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    if (supabaseFetchedRecords.isNotEmpty()) {
+                        Text(
+                            text = "Rekaman Supabase terbaru: ${supabaseFetchedRecords.first().userName} (Level ${supabaseFetchedRecords.first().level}, ${supabaseFetchedRecords.size} baris)",
+                            fontSize = 11.sp,
+                            color = ElectricCyan,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    when (val state = supabaseSyncState) {
+                        is SupabaseSyncState.Success -> {
+                            Text(
+                                text = state.message,
+                                fontSize = 11.sp,
+                                color = EmeraldGreen,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        is SupabaseSyncState.Error -> {
+                            Text(
+                                text = state.message,
+                                fontSize = 11.sp,
+                                color = PriorityHigh,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        else -> Unit
                     }
                 }
             }

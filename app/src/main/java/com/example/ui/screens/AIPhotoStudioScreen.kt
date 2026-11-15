@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Delete
@@ -66,11 +73,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.model.AiGalleryItem
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.AmberGold
@@ -81,7 +90,9 @@ import com.example.ui.theme.NeonIndigo
 import com.example.ui.theme.PriorityHigh
 import com.example.ui.theme.SunsetPink
 import com.example.viewmodel.AiBackgroundStyle
+import com.example.viewmodel.AppScreen
 import com.example.viewmodel.MyEvoViewModel
+import com.example.viewmodel.SupabaseSyncState
 
 @Composable
 fun AIPhotoStudioScreen(
@@ -102,6 +113,16 @@ fun AIPhotoStudioScreen(
     val aiGallery by viewModel.aiGallery.collectAsState()
     val isGeneratingPhoto by viewModel.isGeneratingPhoto.collectAsState()
     val generatedResult by viewModel.generatedPhotoResult.collectAsState()
+    val capturedPhotoUri by viewModel.capturedPhotoUri.collectAsState()
+    val supabaseSyncState by viewModel.supabaseSyncState.collectAsState()
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { pickedUri ->
+        if (pickedUri != null) {
+            viewModel.setCapturedPhotoUri(pickedUri)
+        }
+    }
 
     var activeTab by remember { mutableStateOf(0) } // 0: Transformasi AI, 1: Kreasi Foto Baru, 2: Galeri Karya
     var showBeforeView by remember { mutableStateOf(false) }
@@ -246,22 +267,67 @@ fun AIPhotoStudioScreen(
                 item {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                         Text(
-                            text = "1. Pilih Objek Foto Subjek:",
+                            text = "1. Ambil / Pilih Sumber Foto:",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { viewModel.navigateTo(AppScreen.PHOTO_CAPTURE) },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonIndigo),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("btn_open_camera_capture")
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Ambil Foto (Kamera)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("btn_pick_gallery_photo")
+                            ) {
+                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Pilih Galeri", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Atau Gunakan Preset Subjek Studio:",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(presetSubjects) { subject ->
-                                val isSel = selectedPresetSubject == subject
+                                val isSel = capturedPhotoUri == null && selectedPresetSubject == subject
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSel) NeonIndigo else MaterialTheme.colorScheme.surface,
                                     border = if (!isSel) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant) else null,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
-                                        .clickable { selectedPresetSubject = subject }
+                                        .clickable {
+                                            viewModel.clearCapturedPhotoUri()
+                                            selectedPresetSubject = subject
+                                        }
                                 ) {
                                     Text(
                                         text = subject,
@@ -305,32 +371,66 @@ fun AIPhotoStudioScreen(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = when (selectedPresetSubject) {
-                                        "Profesional Portrait" -> "👤"
-                                        "Produk Sepatu Sneaker" -> "👟"
-                                        "Kopi & Buku Estetik" -> "☕"
-                                        "Pemandangan Alam" -> "🏔️"
-                                        else -> "🐱"
-                                    },
-                                    fontSize = 68.sp
+                            if (capturedPhotoUri != null) {
+                                AsyncImage(
+                                    model = capturedPhotoUri,
+                                    contentDescription = "Foto tangkapan kamera untuk AI Studio",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .testTag("studio_captured_photo_image")
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color.Black.copy(alpha = 0.5f)
+                                if (isProcessed && !showBeforeView) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color(selectedBg.colorCode).copy(alpha = 0.28f))
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { viewModel.clearCapturedPhotoUri() },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                        .size(36.dp)
+                                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                                        .testTag("btn_clear_captured_photo")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Hapus foto kamera",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
                                 ) {
                                     Text(
-                                        text = selectedPresetSubject,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        text = when (selectedPresetSubject) {
+                                            "Profesional Portrait" -> "👤"
+                                            "Produk Sepatu Sneaker" -> "👟"
+                                            "Kopi & Buku Estetik" -> "☕"
+                                            "Pemandangan Alam" -> "🏔️"
+                                            else -> "🐱"
+                                        },
+                                        fontSize = 68.sp
                                     )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color.Black.copy(alpha = 0.5f)
+                                    ) {
+                                        Text(
+                                            text = selectedPresetSubject,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -444,52 +544,107 @@ fun AIPhotoStudioScreen(
                     }
                 }
 
-                // Action Buttons: Transform & Save to Gallery
+                // Action Buttons: Transform, Save to Gallery, & Optional Supabase Upload
                 item {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = { viewModel.processAiBackgroundRemoval() },
-                            colors = ButtonDefaults.buttonColors(containerColor = NeonIndigo),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("btn_transform_photo")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Transformasi AI")
-                        }
-
-                        if (isProcessed) {
                             Button(
-                                onClick = {
-                                    viewModel.saveToAiGallery(
-                                        title = "$selectedPresetSubject - ${selectedBg.label}",
-                                        prompt = customTransformPrompt.ifBlank { selectedBg.promptDescription },
-                                        style = selectedBg.label,
-                                        subject = selectedPresetSubject,
-                                        isTransformation = true,
-                                        colorPrimary = selectedBg.colorCode,
-                                        colorSecondary = 0xFF6366F1
-                                    )
-                                    feedbackMessage = "Foto transformasi berhasil disimpan ke Galeri AI!"
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                onClick = { viewModel.processAiBackgroundRemoval() },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonIndigo),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
-                                    .testTag("btn_save_transformed_gallery")
+                                    .testTag("btn_transform_photo")
                             ) {
-                                Icon(Icons.Default.Collections, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Simpan Galeri")
+                                Text("Transformasi AI")
+                            }
+
+                            if (isProcessed || capturedPhotoUri != null) {
+                                Button(
+                                    onClick = {
+                                        val subjectLabel = if (capturedPhotoUri != null) "Foto KameraX" else selectedPresetSubject
+                                        viewModel.saveToAiGallery(
+                                            title = "$subjectLabel - ${selectedBg.label}",
+                                            prompt = customTransformPrompt.ifBlank { selectedBg.promptDescription },
+                                            style = selectedBg.label,
+                                            subject = subjectLabel,
+                                            isTransformation = true,
+                                            colorPrimary = selectedBg.colorCode,
+                                            colorSecondary = 0xFF6366F1,
+                                            imageUri = capturedPhotoUri?.toString()
+                                        )
+                                        feedbackMessage = "Foto transformasi berhasil disimpan ke Galeri AI!"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("btn_save_transformed_gallery")
+                                ) {
+                                    Icon(Icons.Default.Collections, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Simpan Galeri")
+                                }
+                            }
+                        }
+
+                        if (capturedPhotoUri != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.uploadPhotoToSupabase(
+                                        context = context,
+                                        imageUri = capturedPhotoUri!!,
+                                        label = selectedBg.name.lowercase()
+                                    )
+                                },
+                                enabled = supabaseSyncState !is SupabaseSyncState.Loading,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("btn_upload_captured_supabase")
+                            ) {
+                                if (supabaseSyncState is SupabaseSyncState.Loading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Mengunggah ke Supabase Storage...")
+                                } else {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Unggah Foto Kamera ke Supabase Storage")
+                                }
+                            }
+
+                            when (val st = supabaseSyncState) {
+                                is SupabaseSyncState.Success -> {
+                                    Text(
+                                        text = st.message,
+                                        fontSize = 11.sp,
+                                        color = EmeraldGreen,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                is SupabaseSyncState.Error -> {
+                                    Text(
+                                        text = st.message,
+                                        fontSize = 11.sp,
+                                        color = PriorityHigh,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                else -> Unit
                             }
                         }
                     }
@@ -780,6 +935,16 @@ fun AIPhotoStudioScreen(
                             onDelete = {
                                 viewModel.deleteFromAiGallery(item.id)
                                 feedbackMessage = "Foto berhasil dihapus dari galeri."
+                            },
+                            onUploadSupabase = item.imageUri?.let { uriStr ->
+                                {
+                                    viewModel.uploadPhotoToSupabase(
+                                        context = context,
+                                        imageUri = Uri.parse(uriStr),
+                                        label = item.title
+                                    )
+                                    feedbackMessage = "Mengunggah \"${item.title}\" ke Supabase Storage..."
+                                }
                             }
                         )
                     }
@@ -794,7 +959,8 @@ fun GalleryItemCard(
     item: AiGalleryItem,
     onShare: () -> Unit,
     onDownload: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onUploadSupabase: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier
@@ -818,23 +984,32 @@ fun GalleryItemCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (item.isTransformation) "✨" else "🎨",
-                        fontSize = 44.sp
+                if (item.imageUri != null) {
+                    AsyncImage(
+                        model = Uri.parse(item.imageUri),
+                        contentDescription = "Foto ${item.title}",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Black.copy(alpha = 0.55f)
-                    ) {
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = item.subject,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            text = if (item.isTransformation) "✨" else "🎨",
+                            fontSize = 44.sp
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Black.copy(alpha = 0.55f)
+                        ) {
+                            Text(
+                                text = item.subject,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
                     }
                 }
 
@@ -915,16 +1090,31 @@ fun GalleryItemCard(
                     }
                 }
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(32.dp).testTag("btn_delete_${item.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Hapus",
-                        tint = PriorityHigh,
-                        modifier = Modifier.size(18.dp)
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (onUploadSupabase != null) {
+                        IconButton(
+                            onClick = onUploadSupabase,
+                            modifier = Modifier.size(36.dp).testTag("btn_upload_supabase_${item.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = "Unggah ke Supabase",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(36.dp).testTag("btn_delete_${item.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Hapus",
+                            tint = PriorityHigh,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

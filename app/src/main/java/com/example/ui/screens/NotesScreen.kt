@@ -164,11 +164,7 @@ fun NotesScreen(
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = "PIN Default demo: 1234",
-                        fontSize = 11.sp,
-                        color = AmberGold
-                    )
+                    StatusPill(text = "Terkunci PIN", color = EmeraldGreen)
                 }
             }
 
@@ -279,7 +275,7 @@ fun NotesScreen(
                         )
                         if (unlockError) {
                             Text(
-                                text = "PIN salah! Silakan coba lagi (coba 1234).",
+                                text = "PIN enkripsi salah. Silakan coba lagi.",
                                 color = PriorityHigh,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(top = 4.dp)
@@ -438,7 +434,7 @@ fun AddEncryptedNoteDialog(
 ) {
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
-    var pin by remember { mutableStateOf("1234") }
+    var pin by remember { mutableStateOf("") }
     var mood by remember { mutableStateOf("😊") }
     var tag by remember { mutableStateOf("Pribadi") }
 

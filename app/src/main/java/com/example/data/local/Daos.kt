@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import com.example.data.model.BadgeEntity
 import com.example.data.model.DebtLoanItem
 import com.example.data.model.DictionaryWord
 import com.example.data.model.EncryptedNote
@@ -13,6 +14,7 @@ import com.example.data.model.FinanceItem
 import com.example.data.model.LanguageLearningEntity
 import com.example.data.model.ScheduleEvent
 import com.example.data.model.TaskItem
+import com.example.data.model.UserStreakEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -158,3 +160,46 @@ interface LanguageLearningDao {
     @Query("DELETE FROM language_learning")
     suspend fun clearAll()
 }
+
+@Dao
+interface BadgeDao {
+    @Query("SELECT * FROM badges ORDER BY isUnlocked DESC, category ASC, targetProgress ASC")
+    fun getAllBadges(): Flow<List<BadgeEntity>>
+
+    @Query("SELECT * FROM badges ORDER BY category ASC, targetProgress ASC")
+    suspend fun getAllBadgesOnce(): List<BadgeEntity>
+
+    @Query("SELECT * FROM badges WHERE category = :category ORDER BY targetProgress ASC")
+    fun getBadgesByCategory(category: String): Flow<List<BadgeEntity>>
+
+    @Query("SELECT * FROM badges WHERE id = :id LIMIT 1")
+    suspend fun getBadgeById(id: String): BadgeEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBadge(badge: BadgeEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBadges(badges: List<BadgeEntity>)
+
+    @Query("SELECT COUNT(*) FROM badges")
+    suspend fun getBadgeCount(): Int
+
+    @Query("DELETE FROM badges")
+    suspend fun clearAllBadges()
+}
+
+@Dao
+interface UserStreakDao {
+    @Query("SELECT * FROM user_streaks WHERE `key` = :key LIMIT 1")
+    fun observeStreak(key: String): Flow<UserStreakEntity?>
+
+    @Query("SELECT * FROM user_streaks WHERE `key` = :key LIMIT 1")
+    suspend fun getStreak(key: String): UserStreakEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertStreak(streak: UserStreakEntity)
+
+    @Query("DELETE FROM user_streaks")
+    suspend fun clearAllStreaks()
+}
+

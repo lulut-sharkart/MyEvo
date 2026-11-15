@@ -1,0 +1,173 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.level is int && data.level >= 1 &&
+             data.currentXp is int && data.currentXp >= 0 &&
+             data.streakDays is int && data.streakDays >= 0 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTask(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.category is string && data.category in ['WORK', 'PERSONAL', 'STUDY', 'FINANCE', 'HEALTH'] &&
+             data.priority is string && data.priority in ['HIGH', 'MEDIUM', 'LOW'] &&
+             data.dueDate is string && data.dueDate.size() <= 20 &&
+             data.isCompleted is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFinance(data) {
+      return data.type is string && data.type in ['INCOME', 'EXPENSE'] &&
+             data.category is string && data.category in ['FOOD', 'TRANSPORT', 'BILLS', 'SHOPPING', 'HEALTH', 'ENTERTAINMENT', 'SALARY', 'OTHER'] &&
+             data.amount is number && data.amount >= 0 &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 200)) &&
+             data.date is string && data.date.size() <= 20 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidDebt(data) {
+      return data.type is string && data.type in ['DEBT', 'LOAN'] &&
+             data.personName is string && data.personName.size() >= 1 && data.personName.size() <= 80 &&
+             data.amount is number && data.amount > 0 &&
+             data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount <= data.amount &&
+             data.isSettled is bool &&
+             data.dueDate is string && data.dueDate.size() <= 20 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidBadge(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+             data.category is string && data.category.size() <= 20 &&
+             data.currentProgress is int && data.currentProgress >= 0 &&
+             data.targetProgress is int && data.targetProgress >= 1 &&
+             data.isUnlocked is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'level', 'currentXp', 'streakDays', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'level', 'currentXp', 'streakDays', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       isValidId(userId) &&
+                       incoming().userId == existing().userId &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'level', 'currentXp', 'streakDays', 'updatedAt']);
+
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+
+      match /tasks/{taskId} {
+        allow get: if isSignedIn() && request.auth.uid == userId && isValidId(taskId);
+        allow list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(taskId) &&
+                         incoming().keys().hasAll(['title', 'category', 'priority', 'dueDate', 'isCompleted', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['title', 'category', 'priority', 'dueDate', 'isCompleted', 'updatedAt']) &&
+                         isValidTask(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(taskId) &&
+                         isValidTask(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'priority', 'dueDate', 'isCompleted', 'updatedAt']);
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(taskId);
+      }
+
+      match /finance/{financeId} {
+        allow get: if isSignedIn() && request.auth.uid == userId && isValidId(financeId);
+        allow list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(financeId) &&
+                         incoming().keys().hasAll(['type', 'category', 'amount', 'date', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['type', 'category', 'amount', 'note', 'date', 'updatedAt']) &&
+                         isValidFinance(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(financeId) &&
+                         isValidFinance(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['type', 'category', 'amount', 'note', 'date', 'updatedAt']);
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(financeId);
+      }
+
+      match /debts/{debtId} {
+        allow get: if isSignedIn() && request.auth.uid == userId && isValidId(debtId);
+        allow list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(debtId) &&
+                         incoming().keys().hasAll(['type', 'personName', 'amount', 'paidAmount', 'isSettled', 'dueDate', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['type', 'personName', 'amount', 'paidAmount', 'isSettled', 'dueDate', 'updatedAt']) &&
+                         isValidDebt(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(debtId) &&
+                         isValidDebt(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['type', 'personName', 'amount', 'paidAmount', 'isSettled', 'dueDate', 'updatedAt']);
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(debtId);
+      }
+
+      match /badges/{badgeId} {
+        allow get: if isSignedIn() && request.auth.uid == userId && isValidId(badgeId);
+        allow list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(badgeId) &&
+                         incoming().keys().hasAll(['title', 'category', 'currentProgress', 'targetProgress', 'isUnlocked', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['title', 'category', 'currentProgress', 'targetProgress', 'isUnlocked', 'updatedAt']) &&
+                         isValidBadge(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         isValidId(badgeId) &&
+                         isValidBadge(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'currentProgress', 'targetProgress', 'isUnlocked', 'updatedAt']);
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(badgeId);
+      }
+    }
+  }
+}

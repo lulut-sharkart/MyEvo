@@ -24,18 +24,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,6 +84,7 @@ import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldGreen
 import com.example.ui.theme.NeonIndigo
 import com.example.ui.theme.PriorityHigh
+import com.example.viewmodel.CrosswordGenerationState
 import com.example.viewmodel.LanguageLearningViewModel
 import com.example.viewmodel.MyEvoViewModel
 
@@ -92,6 +97,9 @@ fun LanguageScreen(
     val isOnline by viewModel.isOnline.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val selectedLesson by viewModel.selectedLesson.collectAsState()
+    val puzzle by viewModel.dailyCrossword.collectAsState()
+    val crosswordUiState by viewModel.crosswordUiState.collectAsState()
+    val crosswordTheme by viewModel.crosswordTheme.collectAsState()
     val crosswordAnswers by viewModel.crosswordAnswers.collectAsState()
     val isCrosswordCompleted by viewModel.isCrosswordCompleted.collectAsState()
     val dictQuery by viewModel.dictionaryQuery.collectAsState()
@@ -110,6 +118,8 @@ fun LanguageScreen(
     val masteryRate by langLearningVm.overallMasteryRate.collectAsState()
     val selectedLang by langLearningVm.selectedLanguage.collectAsState()
     val vocabSearchQuery by langLearningVm.searchQuery.collectAsState()
+    val languageStreak by langLearningVm.languageStreak.collectAsState()
+    val languageBadges by langLearningVm.languageBadges.collectAsState()
 
     var showAddVocabDialog by remember { mutableStateOf(false) }
 
@@ -228,6 +238,7 @@ fun LanguageScreen(
                     item {
                         ActiveLessonQuizView(
                             lesson = selectedLesson!!,
+                            onComplete = { viewModel.recordLanguageLessonCompletion() },
                             onBack = { viewModel.selectLesson(null) }
                         )
                     }
@@ -235,6 +246,75 @@ fun LanguageScreen(
             } else if (activeTab == 1) {
                 // TAB 1: KOSAKATA & KAMUS OFFLINE DENGAN PROGRESS TRACKING
                 item {
+                    // Streak & Language Badge Progress Strip (Room Persisted)
+                    val streakDays = languageStreak?.currentStreak ?: 0
+                    val unlockedBadges = languageBadges.count { it.isUnlocked }
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .testTag("language_streak_badge_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CoralOrange.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.LocalFireDepartment,
+                                        contentDescription = "Streak Bahasa",
+                                        tint = CoralOrange,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Streak Belajar: $streakDays Hari",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = CoralOrange
+                                    )
+                                }
+                                StatusPill(
+                                    text = "$unlockedBadges/${languageBadges.size} Lencana",
+                                    color = AmberGold
+                                )
+                            }
+                            if (languageBadges.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(languageBadges, key = { it.id }) { badge ->
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (badge.isUnlocked) {
+                                                EmeraldGreen.copy(alpha = 0.16f)
+                                            } else {
+                                                MaterialTheme.colorScheme.surface
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(badge.iconEmoji, fontSize = 14.sp)
+                                                Spacer(modifier = Modifier.width(5.dp))
+                                                Text(
+                                                    text = "${badge.title} (${badge.currentProgress}/${badge.targetProgress})",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (badge.isUnlocked) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (badge.isUnlocked) EmeraldGreen else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Progress Tracking Overview Card
                     Card(
                         modifier = Modifier
@@ -373,9 +453,118 @@ fun LanguageScreen(
                     )
                 }
             } else {
-                // TAB 2: TEKA-TEKI SILANG HARIAN (DAILY CROSSWORD)
-                val puzzle = viewModel.dailyCrossword
+                // TAB 2: TEKA-TEKI SILANG HARIAN BERBASIS GEMINI AI
                 item {
+                    val themes = listOf(
+                        "Otomatis Harian",
+                        "Teknologi & AI",
+                        "Keuangan Cerdas",
+                        "Sains & Alam",
+                        "Kosakata Global"
+                    )
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .testTag("ai_crossword_generator_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "✨ Generator Teka-Teki Gemini AI",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = NeonIndigo
+                                )
+                                StatusPill(text = viewModel.todayDateStr, color = ElectricCyan)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Pilih tema unik setiap hari dan minta Gemini AI merancang petunjuk yang segar & menantang:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(themes) { themeName ->
+                                    FilterChip(
+                                        selected = crosswordTheme == themeName,
+                                        onClick = { viewModel.setCrosswordTheme(themeName) },
+                                        label = { Text(themeName, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { viewModel.generateAiDailyCrossword(crosswordTheme) },
+                                enabled = crosswordUiState !is CrosswordGenerationState.Loading,
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonIndigo),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_generate_ai_crossword")
+                            ) {
+                                if (crosswordUiState is CrosswordGenerationState.Loading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Meracik Teka-Teki Gemini AI...", color = Color.White, fontSize = 12.sp)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Buat Teka-Teki Unik Hari Ini", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+
+                            if (crosswordUiState is CrosswordGenerationState.Error) {
+                                val errState = crosswordUiState as CrosswordGenerationState.Error
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = errState.message,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = { viewModel.generateAiDailyCrossword(crosswordTheme) },
+                                            modifier = Modifier.testTag("btn_retry_ai_crossword")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Coba Lagi",
+                                                tint = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -390,7 +579,7 @@ fun LanguageScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = puzzle.title,
                                         fontWeight = FontWeight.Bold,
@@ -799,6 +988,7 @@ fun LessonCard(
 @Composable
 fun ActiveLessonQuizView(
     lesson: LanguageLesson,
+    onComplete: () -> Unit,
     onBack: () -> Unit
 ) {
     var currentQuestionIdx by remember { mutableStateOf(0) }
@@ -963,6 +1153,7 @@ fun ActiveLessonQuizView(
                             hasAnswered = false
                             showExplanation = false
                         } else {
+                            onComplete()
                             onBack()
                         }
                     },

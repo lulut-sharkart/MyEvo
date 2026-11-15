@@ -76,12 +76,22 @@ data class DebtLoanItem(
     val type: DebtType,
     val personName: String,
     val amount: Double,
+    val paidAmount: Double = 0.0,
     val dueDate: String, // YYYY-MM-DD
     val note: String = "",
     val isSettled: Boolean = false,
     val contactPhone: String = "",
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    val effectivePaidAmount: Double
+        get() = if (isSettled) amount else paidAmount.coerceIn(0.0, amount)
+
+    val remainingAmount: Double
+        get() = (amount - effectivePaidAmount).coerceAtLeast(0.0)
+
+    val progressFraction: Float
+        get() = if (amount <= 0.0) 0f else (effectivePaidAmount / amount).toFloat().coerceIn(0f, 1f)
+}
 
 @Entity(tableName = "encrypted_notes")
 data class EncryptedNote(
@@ -126,6 +136,34 @@ data class LanguageLearningEntity(
     val reviewCount: Int = 0,
     val lastReviewedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "badges")
+data class BadgeEntity(
+    @PrimaryKey
+    val id: String,
+    val title: String,
+    val description: String,
+    val iconEmoji: String,
+    val category: String, // "TASK", "LANGUAGE"
+    val currentProgress: Int = 0,
+    val targetProgress: Int = 1,
+    val isUnlocked: Boolean = false,
+    val unlockedAt: Long? = null,
+    val xpReward: Int = 100
+) {
+    val progressFraction: Float
+        get() = if (targetProgress <= 0) 0f else (currentProgress.toFloat() / targetProgress).coerceIn(0f, 1f)
+}
+
+@Entity(tableName = "user_streaks")
+data class UserStreakEntity(
+    @PrimaryKey
+    val key: String, // "language_streak", "task_streak"
+    val currentStreak: Int = 0,
+    val longestStreak: Int = 0,
+    val totalCompletedCount: Int = 0,
+    val lastActivityDate: String = "" // YYYY-MM-DD
 )
 
 data class CrosswordClue(
@@ -198,7 +236,8 @@ data class AiGalleryItem(
     val dateStr: String,
     val isTransformation: Boolean = true,
     val colorPrimary: Long = 0xFF6366F1,
-    val colorSecondary: Long = 0xFF8B5CF6
+    val colorSecondary: Long = 0xFF8B5CF6,
+    val imageUri: String? = null
 )
 
 data class LeaderboardUser(

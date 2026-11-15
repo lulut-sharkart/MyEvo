@@ -1,4 +1,3 @@
 <resources>
     <string name="app_name">MyEvo</string>
-    <string name="default_web_client_id">myevo-cloud.apps.googleusercontent.com</string>
 </resources>

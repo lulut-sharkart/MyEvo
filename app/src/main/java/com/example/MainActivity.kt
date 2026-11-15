@@ -56,9 +56,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.local.AppLockPreferences
+import com.example.data.local.PinSecurityDataStore
+import com.example.data.remote.configureAppCheck
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.LoginScreen
+import com.example.ui.screens.PinEntryScreen
 import com.example.ui.screens.PinLockMode
 import com.example.ui.screens.PinLockScreen
 import com.example.ui.screens.CalendarScreen
@@ -67,9 +70,11 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LanguageScreen
 import com.example.ui.screens.NotesScreen
 import com.example.ui.screens.AIPhotoStudioScreen
+import com.example.ui.screens.PhotoCaptureScreen
 import com.example.ui.screens.ProfileLeaderboardScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StudioScreen
+import com.example.ui.screens.tools.ToolsScreen
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.MyEvoTheme
 import com.example.ui.theme.NeonIndigo
@@ -89,6 +94,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureAppCheck(this, intent)
         enableEdgeToEdge()
         WorkManagerHelper.schedulePeriodicDeadlineCheck(this)
         setContent {
@@ -97,10 +103,13 @@ class MainActivity : ComponentActivity() {
 
             val context = LocalContext.current
             val appLockPrefs = remember { AppLockPreferences(context) }
+            val pinSecurityStore = remember { PinSecurityDataStore(context) }
             val isAppLockEnabled by appLockPrefs.isAppLockEnabled.collectAsState(initial = false)
             val hasConfiguredPin by appLockPrefs.hasConfiguredPin.collectAsState(initial = false)
+            val isJournalGateEnabled by pinSecurityStore.isJournalGateEnabled.collectAsState(initial = true)
 
             var isAppLocked by remember { mutableStateOf(false) }
+            var isJournalUnlocked by remember { mutableStateOf(false) }
             var pausedTimestamp by remember { mutableLongStateOf(0L) }
 
             val lifecycleOwner = LocalLifecycleOwner.current
@@ -108,6 +117,7 @@ class MainActivity : ComponentActivity() {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_PAUSE) {
                         pausedTimestamp = System.currentTimeMillis()
+                        isJournalUnlocked = false
                     } else if (event == Lifecycle.Event.ON_RESUME) {
                         if (isAppLockEnabled && hasConfiguredPin && (System.currentTimeMillis() - pausedTimestamp > 1500L) && pausedTimestamp != 0L) {
                             isAppLocked = true
@@ -130,9 +140,13 @@ class MainActivity : ComponentActivity() {
                         onUnlockSuccess = { isAppLocked = false }
                     )
                 } else {
-                    // BackHandler to return to HOME when in other tabs
+                    // BackHandler to return to previous/HOME screen when in sub-screens
                     BackHandler(enabled = currentScreen != AppScreen.HOME && currentScreen != AppScreen.AUTH) {
-                        viewModel.navigateTo(AppScreen.HOME)
+                        if (currentScreen == AppScreen.PHOTO_CAPTURE) {
+                            viewModel.navigateTo(AppScreen.STUDIO)
+                        } else {
+                            viewModel.navigateTo(AppScreen.HOME)
+                        }
                     }
 
                     val navItems = listOf(
@@ -146,7 +160,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        if (currentScreen != AppScreen.AUTH) {
+                        if (currentScreen != AppScreen.AUTH && currentScreen != AppScreen.PHOTO_CAPTURE) {
                             Surface(
                                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                                 color = MaterialTheme.colorScheme.surface,
@@ -213,7 +227,25 @@ class MainActivity : ComponentActivity() {
                                 AppScreen.FINANCE -> FinanceScreen(viewModel = viewModel)
                                 AppScreen.LEARN -> LanguageScreen(viewModel = viewModel)
                                 AppScreen.STUDIO -> AIPhotoStudioScreen(viewModel = viewModel, onBack = { viewModel.navigateTo(AppScreen.HOME) })
-                                AppScreen.NOTES -> NotesScreen(viewModel = viewModel)
+                                AppScreen.PHOTO_CAPTURE -> PhotoCaptureScreen(
+                                    onPhotoCaptured = { uri ->
+                                        viewModel.setCapturedPhotoUri(uri)
+                                        viewModel.navigateTo(AppScreen.STUDIO)
+                                    },
+                                    onBack = { viewModel.navigateTo(AppScreen.STUDIO) }
+                                )
+                                AppScreen.NOTES -> {
+                                    if (isJournalGateEnabled && !isJournalUnlocked) {
+                                        PinEntryScreen(
+                                            moduleTitle = "Jurnal Harian Privat",
+                                            onUnlocked = { isJournalUnlocked = true },
+                                            onBack = { viewModel.navigateTo(AppScreen.HOME) }
+                                        )
+                                    } else {
+                                        NotesScreen(viewModel = viewModel)
+                                    }
+                                }
+                                AppScreen.TOOLS -> ToolsScreen(onBackToHome = { viewModel.navigateTo(AppScreen.HOME) })
                                 AppScreen.PROFILE -> ProfileLeaderboardScreen(viewModel = viewModel)
                                 AppScreen.ADMIN -> AdminScreen(viewModel = viewModel)
                                 AppScreen.SETTINGS -> SettingsScreen(viewModel = viewModel, onBack = { viewModel.navigateTo(AppScreen.HOME) })

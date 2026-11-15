@@ -1,7 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +21,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -36,10 +37,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -56,20 +59,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ScheduleEvent
+import com.example.data.repository.CalendarDateHelper
+import com.example.data.repository.CalendarViewMode
 import com.example.data.repository.HolidayProvider
+import com.example.data.repository.MonthCalendarData
 import com.example.ui.components.AppHeader
 import com.example.ui.components.StatusPill
-import com.example.ui.theme.AmberGold
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldGreen
 import com.example.ui.theme.NeonIndigo
 import com.example.ui.theme.PriorityHigh
+import com.example.viewmodel.AppScreen
 import com.example.viewmodel.MyEvoViewModel
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -84,17 +90,30 @@ fun CalendarScreen(
     val isSyncing by viewModel.isSyncing.collectAsState()
     val selectedDate by viewModel.selectedCalendarDate.collectAsState()
 
+    var viewMode by remember { mutableStateOf(CalendarViewMode.ONE_MONTH) }
     var showCountryMenu by remember { mutableStateOf(false) }
     var showAddEventDialog by remember { mutableStateOf(false) }
 
-    // Calendar Days Generator for November 2026
-    val currentMonthDays = remember {
-        val list = mutableListOf<String>()
-        for (i in 1..30) {
-            val dayStr = if (i < 10) "0$i" else "$i"
-            list.add("2026-11-$dayStr")
+    val todayStr = remember {
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    }
+
+    val periodLabel = remember(selectedDate, viewMode) {
+        CalendarDateHelper.getPeriodHeaderLabel(selectedDate, viewMode)
+    }
+
+    val weekDays = remember(selectedDate) {
+        CalendarDateHelper.generateWeekDays(selectedDate)
+    }
+
+    val monthList = remember(selectedDate, viewMode) {
+        when (viewMode) {
+            CalendarViewMode.ONE_MONTH -> CalendarDateHelper.generateMultiMonthData(selectedDate, 1)
+            CalendarViewMode.THREE_MONTHS -> CalendarDateHelper.generateMultiMonthData(selectedDate, 3)
+            CalendarViewMode.SIX_MONTHS -> CalendarDateHelper.generateMultiMonthData(selectedDate, 6)
+            CalendarViewMode.ONE_YEAR -> CalendarDateHelper.generateMultiMonthData(selectedDate, 12)
+            else -> emptyList()
         }
-        list
     }
 
     val dayEvents = remember(events, selectedDate) {
@@ -110,7 +129,6 @@ fun CalendarScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 96.dp)
         ) {
-            // Header
             item {
                 AppHeader(
                     title = "Kalender Interaktif",
@@ -124,7 +142,7 @@ fun CalendarScreen(
                     onSyncClick = { viewModel.triggerCloudBackup() },
                     onToggleDarkMode = { viewModel.toggleDarkMode() },
                     onToggleReadingMode = { viewModel.toggleReadingMode() },
-                    onGuestBannerClick = { viewModel.navigateTo(com.example.viewmodel.AppScreen.PROFILE) }
+                    onGuestBannerClick = { viewModel.navigateTo(AppScreen.PROFILE) }
                 )
             }
 
@@ -133,7 +151,7 @@ fun CalendarScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("country_holiday_card"),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -147,13 +165,13 @@ fun CalendarScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.Public,
-                                    contentDescription = "Country",
+                                    contentDescription = "Negara",
                                     tint = ElectricCyan,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Hari Libur Nasional Lokasi:",
+                                    text = "Hari Libur Nasional (${holidaysCount}):",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -184,9 +202,7 @@ fun CalendarScreen(
                                 ) {
                                     HolidayProvider.supportedCountries.forEach { country ->
                                         DropdownMenuItem(
-                                            text = {
-                                                Text("${country.flagEmoji} ${country.name} (${country.code})")
-                                            },
+                                            text = { Text("${country.flagEmoji} ${country.name} (${country.code})") },
                                             onClick = {
                                                 viewModel.setCountry(country.code, country.name)
                                                 showCountryMenu = false
@@ -197,172 +213,223 @@ fun CalendarScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Menampilkan $holidaysCount hari libur nasional resmi untuk ${userProfile.selectedCountry}. Diperbarui otomatis dari HolidayCalendarProvider API & tersimpan di database Room.",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.End,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             modifier = Modifier.fillMaxWidth()
                         ) {
+                            TextButton(
+                                onClick = { viewModel.syncGoogleCalendar() },
+                                modifier = Modifier.testTag("sync_google_cal_btn")
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = NeonIndigo)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Google Cal Sync", fontSize = 11.sp, color = NeonIndigo, fontWeight = FontWeight.Bold)
+                            }
                             TextButton(
                                 onClick = {
                                     viewModel.setCountry(userProfile.countryCode, userProfile.selectedCountry.substringBefore(" ("))
                                 },
                                 modifier = Modifier.testTag("btn_sync_holiday_api")
                             ) {
-                                Icon(Icons.Default.Sync, contentDescription = "Sync", modifier = Modifier.size(16.dp), tint = ElectricCyan)
+                                Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp), tint = ElectricCyan)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Sinkronkan Hari Libur API", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Bold)
+                                Text("Sinkron Libur API", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
             }
 
-            // Google Calendar Sync Banner
+            // Period Display Mode Selector (1 Hari, 1 Minggu, 1 Bulan, 3 Bulan, 6 Bulan, 1 Tahun)
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .testTag("google_calendar_card"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF4285F4).copy(alpha = 0.10f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF4285F4)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CalendarMonth,
-                                    contentDescription = "GCal",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Google Calendar Sync",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Sinkronisasi 2 arah jadwal rapat & acara",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = { viewModel.syncGoogleCalendar() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.testTag("sync_google_cal_btn")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = "Sync",
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Sinkronkan", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-
-            // Interactive Day Selector Carousel
-            item {
-                Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                Column(modifier = Modifier.padding(top = 4.dp)) {
                     Text(
-                        text = "Pilih Tanggal (November 2026):",
-                        fontSize = 13.sp,
+                        text = "Tampilan Rentang Kalender:",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                     )
-
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(currentMonthDays) { dateStr ->
-                            val isSelected = selectedDate == dateStr
-                            val dayNumber = dateStr.substring(8)
-                            val hasHoliday = events.any { it.date == dateStr && it.isHoliday }
-                            val hasEvent = events.any { it.date == dateStr && !it.isHoliday }
+                        items(CalendarViewMode.entries) { mode ->
+                            FilterChip(
+                                selected = viewMode == mode,
+                                onClick = { viewMode = mode },
+                                label = { Text(mode.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = NeonIndigo,
+                                    selectedLabelColor = Color.White
+                                ),
+                                modifier = Modifier.testTag("cal_mode_${mode.name}")
+                            )
+                        }
+                    }
+                }
+            }
 
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isSelected) NeonIndigo else MaterialTheme.colorScheme.surface,
-                                border = if (hasHoliday) androidx.compose.foundation.BorderStroke(1.dp, PriorityHigh) else null,
-                                modifier = Modifier
-                                    .width(54.dp)
-                                    .height(72.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable { viewModel.setSelectedCalendarDate(dateStr) }
-                                    .testTag("day_btn_$dayNumber")
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+            // Period Navigation Header (< Label > + Hari Ini)
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                viewModel.setSelectedCalendarDate(
+                                    CalendarDateHelper.shiftAnchorDate(selectedDate, viewMode, -1)
+                                )
+                            },
+                            modifier = Modifier.size(48.dp).testTag("cal_prev_period_btn")
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Periode sebelumnya")
+                        }
+                        Text(
+                            text = periodLabel,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        IconButton(
+                            onClick = {
+                                viewModel.setSelectedCalendarDate(
+                                    CalendarDateHelper.shiftAnchorDate(selectedDate, viewMode, 1)
+                                )
+                            },
+                            modifier = Modifier.size(48.dp).testTag("cal_next_period_btn")
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Periode berikutnya")
+                        }
+                    }
+
+                    TextButton(
+                        onClick = { viewModel.setSelectedCalendarDate(todayStr) },
+                        modifier = Modifier.testTag("cal_today_btn")
+                    ) {
+                        Icon(Icons.Default.Today, contentDescription = null, modifier = Modifier.size(16.dp), tint = NeonIndigo)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Hari Ini", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NeonIndigo)
+                    }
+                }
+            }
+
+            // Dynamic Calendar Content Based on ViewMode
+            when (viewMode) {
+                CalendarViewMode.ONE_DAY -> {
+                    item {
+                        SingleDaySummaryBanner(
+                            selectedDate = selectedDate,
+                            dayEvents = dayEvents,
+                            isToday = selectedDate == todayStr
+                        )
+                    }
+                }
+
+                CalendarViewMode.ONE_WEEK -> {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            weekDays.forEach { cell ->
+                                val isSel = cell.dateStr == selectedDate
+                                val hasHoliday = events.any { it.date == cell.dateStr && it.isHoliday }
+                                val hasEvent = events.any { it.date == cell.dateStr && !it.isHoliday }
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isSel) NeonIndigo else MaterialTheme.colorScheme.surface,
+                                    border = if (hasHoliday && !isSel) BorderStroke(1.dp, PriorityHigh) else null,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(74.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { viewModel.setSelectedCalendarDate(cell.dateStr) }
+                                        .testTag("week_day_${cell.dateStr}")
                                 ) {
-                                    Text(
-                                        text = "Nov",
-                                        fontSize = 10.sp,
-                                        color = if (isSelected) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = dayNumber,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) Color.White else if (hasHoliday) PriorityHigh else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        if (hasHoliday) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (isSelected) Color.White else PriorityHigh)
-                                            )
-                                        }
-                                        if (hasEvent) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (isSelected) Color.White else ElectricCyan)
-                                            )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = cell.dayOfWeekShort,
+                                            fontSize = 10.sp,
+                                            color = if (isSel) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = cell.dayOfMonth.toString(),
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSel) Color.White else if (hasHoliday) PriorityHigh else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            if (hasHoliday) {
+                                                Box(
+                                                    modifier = Modifier.size(5.dp).clip(CircleShape)
+                                                        .background(if (isSel) Color.White else PriorityHigh)
+                                                )
+                                            }
+                                            if (hasEvent) {
+                                                Box(
+                                                    modifier = Modifier.size(5.dp).clip(CircleShape)
+                                                        .background(if (isSel) Color.White else ElectricCyan)
+                                                )
+                                            }
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                CalendarViewMode.ONE_MONTH -> {
+                    items(monthList) { monthData ->
+                        MonthGridCard(
+                            monthData = monthData,
+                            selectedDate = selectedDate,
+                            todayStr = todayStr,
+                            events = events,
+                            compact = false,
+                            onSelectDate = { viewModel.setSelectedCalendarDate(it) }
+                        )
+                    }
+                }
+
+                CalendarViewMode.THREE_MONTHS,
+                CalendarViewMode.SIX_MONTHS,
+                CalendarViewMode.ONE_YEAR -> {
+                    items(monthList.chunked(2)) { pair ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            pair.forEach { monthData ->
+                                Box(modifier = Modifier.weight(1f)) {
+                                    MonthGridCard(
+                                        monthData = monthData,
+                                        selectedDate = selectedDate,
+                                        todayStr = todayStr,
+                                        events = events,
+                                        compact = true,
+                                        onSelectDate = { viewModel.setSelectedCalendarDate(it) }
+                                    )
+                                }
+                            }
+                            if (pair.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -371,6 +438,7 @@ fun CalendarScreen(
 
             // Events on Selected Date
             item {
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -379,16 +447,12 @@ fun CalendarScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Jadwal pada $selectedDate",
+                        text = "Agenda pada $selectedDate",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = "${dayEvents.size} Acara",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    StatusPill(text = "${dayEvents.size} Acara", color = NeonIndigo)
                 }
             }
 
@@ -397,24 +461,24 @@ fun CalendarScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(24.dp),
+                                .padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("🗓️", fontSize = 32.sp)
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("🗓️", fontSize = 28.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Tidak ada jadwal pada tanggal ini",
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Tekan tombol + di bawah untuk menjadwalkan agenda",
+                                text = "Ketuk tombol + untuk menambah acara",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -428,7 +492,6 @@ fun CalendarScreen(
             }
         }
 
-        // FAB Add Schedule Event
         FloatingActionButton(
             onClick = { showAddEventDialog = true },
             modifier = Modifier
@@ -450,6 +513,162 @@ fun CalendarScreen(
                     showAddEventDialog = false
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun SingleDaySummaryBanner(
+    selectedDate: String,
+    dayEvents: List<ScheduleEvent>,
+    isToday: Boolean
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .testTag("single_day_focus_card"),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = NeonIndigo.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isToday) "Fokus Hari Ini ($selectedDate)" else "Fokus Harian ($selectedDate)",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    color = NeonIndigo
+                )
+                Text(
+                    text = "${dayEvents.size} agenda / hari libur tercatat untuk tanggal ini.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            StatusPill(text = "1 Hari", color = EmeraldGreen)
+        }
+    }
+}
+
+@Composable
+private fun MonthGridCard(
+    monthData: MonthCalendarData,
+    selectedDate: String,
+    todayStr: String,
+    events: List<ScheduleEvent>,
+    compact: Boolean,
+    onSelectDate: (String) -> Unit
+) {
+    val weekHeaders = remember { CalendarDateHelper.mondayFirstHeaderLabels() }
+    val totalCells = monthData.leadingEmptySlots + monthData.days.size
+    val rowsCount = (totalCells + 6) / 7
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (!compact) Modifier.padding(horizontal = 16.dp, vertical = 4.dp) else Modifier),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(if (compact) 10.dp else 14.dp)) {
+            Text(
+                text = monthData.monthTitle,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (compact) 12.sp else 14.sp,
+                color = NeonIndigo,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+
+            // Weekday labels
+            Row(modifier = Modifier.fillMaxWidth()) {
+                weekHeaders.forEach { h ->
+                    Text(
+                        text = if (compact) h.take(1) else h,
+                        fontSize = if (compact) 9.sp else 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            for (rowIdx in 0 until rowsCount) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    for (colIdx in 0 until 7) {
+                        val slot = rowIdx * 7 + colIdx
+                        val dayIndex = slot - monthData.leadingEmptySlots
+                        if (dayIndex in monthData.days.indices) {
+                            val cell = monthData.days[dayIndex]
+                            val isSelected = cell.dateStr == selectedDate
+                            val isToday = cell.dateStr == todayStr
+                            val hasHoliday = events.any { it.date == cell.dateStr && it.isHoliday }
+                            val hasEvent = events.any { it.date == cell.dateStr && !it.isHoliday }
+
+                            Surface(
+                                shape = RoundedCornerShape(if (compact) 6.dp else 10.dp),
+                                color = when {
+                                    isSelected -> NeonIndigo
+                                    isToday -> ElectricCyan.copy(alpha = 0.16f)
+                                    else -> Color.Transparent
+                                },
+                                border = if (hasHoliday && !isSelected) BorderStroke(1.dp, PriorityHigh.copy(alpha = 0.7f)) else null,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(if (compact) 26.dp else 40.dp)
+                                    .clip(RoundedCornerShape(if (compact) 6.dp else 10.dp))
+                                    .clickable { onSelectDate(cell.dateStr) }
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = cell.dayOfMonth.toString(),
+                                        fontSize = if (compact) 10.sp else 13.sp,
+                                        fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
+                                        color = when {
+                                            isSelected -> Color.White
+                                            hasHoliday -> PriorityHigh
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        }
+                                    )
+                                    if (!compact && (hasHoliday || hasEvent)) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            if (hasHoliday) {
+                                                Box(
+                                                    modifier = Modifier.size(4.dp).clip(CircleShape)
+                                                        .background(if (isSelected) Color.White else PriorityHigh)
+                                                )
+                                            }
+                                            if (hasEvent) {
+                                                Box(
+                                                    modifier = Modifier.size(4.dp).clip(CircleShape)
+                                                        .background(if (isSelected) Color.White else ElectricCyan)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -479,9 +698,7 @@ fun ScheduleEventCard(event: ScheduleEvent) {
                     .clip(RoundedCornerShape(2.dp))
                     .background(cardColor)
             )
-
             Spacer(modifier = Modifier.width(12.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -493,16 +710,13 @@ fun ScheduleEventCard(event: ScheduleEvent) {
                         StatusPill(text = event.syncSource, color = ElectricCyan)
                     }
                 }
-
                 Spacer(modifier = Modifier.height(4.dp))
-
                 Text(
                     text = event.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-
                 if (!event.isHoliday) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
@@ -512,7 +726,7 @@ fun ScheduleEventCard(event: ScheduleEvent) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Schedule,
-                                contentDescription = "Time",
+                                contentDescription = "Waktu",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(13.dp)
                             )
@@ -523,12 +737,11 @@ fun ScheduleEventCard(event: ScheduleEvent) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-
                         if (event.location.isNotBlank()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
-                                    contentDescription = "Location",
+                                    contentDescription = "Lokasi",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(13.dp)
                                 )
@@ -572,18 +785,14 @@ fun AddEventDialog(
                     onValueChange = { title = it },
                     label = { Text("Nama Acara") },
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("event_title_input")
+                    modifier = Modifier.fillMaxWidth().testTag("event_title_input")
                 )
-
                 OutlinedTextField(
                     value = date,
                     onValueChange = { date = it },
                     label = { Text("Tanggal (YYYY-MM-DD)") },
                     modifier = Modifier.fillMaxWidth()
                 )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -601,7 +810,6 @@ fun AddEventDialog(
                         modifier = Modifier.weight(1f)
                     )
                 }
-
                 OutlinedTextField(
                     value = location,
                     onValueChange = { location = it },
@@ -613,11 +821,7 @@ fun AddEventDialog(
         },
         confirmButton = {
             Button(
-                onClick = {
-                    if (title.isNotBlank()) {
-                        onAdd(title, date, startTime, endTime, location)
-                    }
-                },
+                onClick = { if (title.isNotBlank()) onAdd(title, date, startTime, endTime, location) },
                 colors = ButtonDefaults.buttonColors(containerColor = NeonIndigo)
             ) {
                 Text("Simpan Jadwal")

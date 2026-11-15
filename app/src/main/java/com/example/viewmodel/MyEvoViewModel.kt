@@ -1,11 +1,15 @@
 package com.example.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.MyEvoDatabase
 import com.example.data.model.AiGalleryItem
 import com.example.data.model.AuthProvider
+import com.example.data.model.BadgeEntity
+import com.example.data.model.CrosswordPuzzle
 import com.example.data.model.DebtLoanItem
 import com.example.data.model.DebtType
 import com.example.data.model.DictionaryWord
@@ -19,14 +23,23 @@ import com.example.data.model.TaskCategory
 import com.example.data.model.TaskItem
 import com.example.data.model.TaskPriority
 import com.example.data.model.UserProfile
+import com.example.data.model.UserStreakEntity
 import com.example.data.model.WeeklyChallenge
+import com.example.data.remote.ExpenseCategorizationResult
+import com.example.data.remote.FirestoreSyncService
+import com.example.data.remote.GeminiAiService
+import com.example.data.remote.SupabaseConfigStatus
+import com.example.data.remote.SupabaseService
 import com.example.data.repository.HolidayProvider
 import com.example.data.repository.LanguageLesson
 import com.example.data.repository.LanguageLessonProvider
 import com.example.data.repository.MyEvoRepository
 import com.example.data.repository.PushNotification
 import com.example.data.repository.SecurityHelper
+import com.example.data.repository.SupabaseRemoteRecord
+import com.example.data.repository.SupabaseRepository
 import com.example.data.repository.SyncManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +51,27 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+sealed interface CrosswordGenerationState {
+    data object Idle : CrosswordGenerationState
+    data object Loading : CrosswordGenerationState
+    data class Success(val puzzle: CrosswordPuzzle, val isAiGenerated: Boolean) : CrosswordGenerationState
+    data class Error(val message: String) : CrosswordGenerationState
+}
+
+sealed interface CategorizationUiState {
+    data object Idle : CategorizationUiState
+    data object Loading : CategorizationUiState
+    data class Success(val result: ExpenseCategorizationResult) : CategorizationUiState
+    data class Error(val message: String) : CategorizationUiState
+}
+
+sealed interface SupabaseSyncState {
+    data object Idle : SupabaseSyncState
+    data object Loading : SupabaseSyncState
+    data class Success(val message: String) : SupabaseSyncState
+    data class Error(val message: String) : SupabaseSyncState
+}
+
 enum class AppScreen {
     AUTH,
     HOME,
@@ -45,7 +79,9 @@ enum class AppScreen {
     FINANCE,
     LEARN,
     STUDIO,
+    PHOTO_CAPTURE,
     NOTES,
+    TOOLS,
     PROFILE,
     ADMIN,
     SETTINGS
@@ -61,16 +97,42 @@ enum class AiBackgroundStyle(val label: String, val promptDescription: String, v
 
 class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: MyEvoRepository
+    private val firestoreSyncService: FirestoreSyncService by lazy {
+        FirestoreSyncService(getApplication())
+    }
 
     init {
         val database = MyEvoDatabase.getDatabase(application)
         repository = MyEvoRepository(database)
         viewModelScope.launch {
-            // Remove any old dummy data to ensure fresh, clean user storage
-            repository.clearAllUserData()
             repository.populateInitialDataIfEmpty()
         }
     }
+
+    // Room-Persisted Badges & Streaks
+    val badges: StateFlow<List<BadgeEntity>> = repository.allBadges
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val languageStreak: StateFlow<UserStreakEntity?> = repository.languageStreak
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    val taskStreak: StateFlow<UserStreakEntity?> = repository.taskStreak
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
     // Navigation
     private val _currentScreen = MutableStateFlow(AppScreen.AUTH)
@@ -216,11 +278,129 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         SyncManager.triggerSync()
-        SyncManager.pushCustomNotification(
-            title = "☁️ Pencadangan Cloud Selesai",
-            message = "Cadangan database lokal berhasil dicadangkan ke server awan MyEvo.",
-            type = "SYNC"
-        )
+        viewModelScope.launch {
+            val result = firestoreSyncService.syncUserDataToCloud(
+                profile = _userProfile.value,
+                tasks = tasks.value,
+                finances = financeEntries.value,
+                debts = debtsLoans.value,
+                badges = badges.value
+            )
+            result.onSuccess { syncedCount ->
+                _userProfile.value = _userProfile.value.copy(
+                    lastSyncTimestamp = "Tersinkron (${syncedCount} item)"
+                )
+                SyncManager.pushCustomNotification(
+                    title = "☁️ Pencadangan Cloud Firestore Selesai",
+                    message = "$syncedCount dokumen tugas, keuangan, utang, & lencana berhasil dicadangkan ke Cloud Firestore.",
+                    type = "SYNC"
+                )
+            }.onFailure { error ->
+                SyncManager.pushCustomNotification(
+                    title = "⚠️ Sinkronisasi Cloud Gagal",
+                    message = error.localizedMessage ?: "Pastikan Anda masuk melalui Google Sign-In dan terhubung ke internet.",
+                    type = "SYNC"
+                )
+            }
+        }
+    }
+
+    // Supabase Integration State & Actions via SupabaseRepository
+    private val supabaseRepository = SupabaseRepository()
+
+    val supabaseConfigStatus: SupabaseConfigStatus
+        get() = SupabaseService.getConfigStatus()
+
+    private val _supabaseSyncState = MutableStateFlow<SupabaseSyncState>(SupabaseSyncState.Idle)
+    val supabaseSyncState: StateFlow<SupabaseSyncState> = _supabaseSyncState.asStateFlow()
+
+    private val _supabaseFetchedRecords = MutableStateFlow<List<SupabaseRemoteRecord>>(emptyList())
+    val supabaseFetchedRecords: StateFlow<List<SupabaseRemoteRecord>> = _supabaseFetchedRecords.asStateFlow()
+
+    fun testSupabaseConnection() {
+        viewModelScope.launch {
+            _supabaseSyncState.value = SupabaseSyncState.Loading
+            val result = SupabaseService.testConnection()
+            result.onSuccess { msg ->
+                _supabaseSyncState.value = SupabaseSyncState.Success(msg)
+                SyncManager.pushCustomNotification(
+                    title = "⚡ Supabase Terhubung",
+                    message = msg,
+                    type = "SYNC"
+                )
+            }.onFailure { err ->
+                val msg = err.localizedMessage ?: "Gagal terhubung ke Supabase."
+                _supabaseSyncState.value = SupabaseSyncState.Error(msg)
+            }
+        }
+    }
+
+    fun fetchSupabaseInitialRecords() {
+        viewModelScope.launch {
+            _supabaseSyncState.value = SupabaseSyncState.Loading
+            val result = supabaseRepository.fetchInitialRecords()
+            result.onSuccess { rows ->
+                _supabaseFetchedRecords.value = rows
+                val msg = "Berhasil mengambil ${rows.size} rekaman awal dari Supabase."
+                _supabaseSyncState.value = SupabaseSyncState.Success(msg)
+            }.onFailure { err ->
+                _supabaseSyncState.value = SupabaseSyncState.Error(
+                    err.localizedMessage ?: "Gagal mengambil data awal dari Supabase."
+                )
+            }
+        }
+    }
+
+    fun syncDataToSupabase() {
+        viewModelScope.launch {
+            _supabaseSyncState.value = SupabaseSyncState.Loading
+            val result = supabaseRepository.pushInitialRecords(
+                profile = _userProfile.value,
+                tasks = tasks.value,
+                finances = financeEntries.value,
+                debts = debtsLoans.value,
+                badges = badges.value
+            )
+            result.onSuccess { syncedCount ->
+                val msg = "Berhasil menyinkronkan $syncedCount item ke tabel Supabase (myevo_sync_snapshots)."
+                _supabaseSyncState.value = SupabaseSyncState.Success(msg)
+                _userProfile.value = _userProfile.value.copy(
+                    lastSyncTimestamp = "Supabase (${syncedCount} item)"
+                )
+                SyncManager.pushCustomNotification(
+                    title = "🟢 Sinkronisasi Supabase Selesai",
+                    message = msg,
+                    type = "SYNC"
+                )
+            }.onFailure { err ->
+                val msg = err.localizedMessage ?: "Sinkronisasi Supabase gagal."
+                _supabaseSyncState.value = SupabaseSyncState.Error(msg)
+            }
+        }
+    }
+
+    fun uploadPhotoToSupabase(context: Context, imageUri: Uri, label: String) {
+        viewModelScope.launch {
+            _supabaseSyncState.value = SupabaseSyncState.Loading
+            val fileName = "${label.take(24)}_${System.currentTimeMillis()}.jpg"
+            val result = SupabaseService.uploadPhotoToSupabaseStorage(context, imageUri, fileName)
+            result.onSuccess { publicUrl ->
+                val msg = "Foto berhasil diunggah ke Supabase Storage (myevo-photos)."
+                _supabaseSyncState.value = SupabaseSyncState.Success("$msg URL: $publicUrl")
+                SyncManager.pushCustomNotification(
+                    title = "☁️ Unggahan Foto Supabase Selesai",
+                    message = msg,
+                    type = "STUDIO"
+                )
+            }.onFailure { err ->
+                val msg = err.localizedMessage ?: "Gagal mengunggah foto ke Supabase Storage."
+                _supabaseSyncState.value = SupabaseSyncState.Error(msg)
+            }
+        }
+    }
+
+    fun resetSupabaseState() {
+        _supabaseSyncState.value = SupabaseSyncState.Idle
     }
 
     // Tasks & Priorities (Optimized with distinctUntilChanged)
@@ -266,6 +446,15 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
                 _userProfile.value = _userProfile.value.copy(
                     completedTasksCount = _userProfile.value.completedTasksCount + 1
                 )
+                val newlyUnlocked = repository.recordTaskCompletionBadgeProgress()
+                newlyUnlocked.forEach { badge ->
+                    addXp(badge.xpReward)
+                    SyncManager.pushCustomNotification(
+                        title = "${badge.iconEmoji} Lencana Baru Terbuka!",
+                        message = "Selamat! Kamu meraih lencana \"${badge.title}\" (+${badge.xpReward} XP).",
+                        type = "CHALLENGE"
+                    )
+                }
             }
         }
     }
@@ -418,10 +607,61 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Gemini API Automated Budget Expense Categorization
+    private val _categorizationUiState = MutableStateFlow<CategorizationUiState>(CategorizationUiState.Idle)
+    val categorizationUiState: StateFlow<CategorizationUiState> = _categorizationUiState.asStateFlow()
+
+    fun categorizeExpenseWithAi(description: String, financeType: FinanceType) {
+        if (description.isBlank()) {
+            _categorizationUiState.value = CategorizationUiState.Error("Masukkan keterangan transaksi terlebih dahulu.")
+            return
+        }
+        viewModelScope.launch {
+            _categorizationUiState.value = CategorizationUiState.Loading
+            try {
+                val result = GeminiAiService.categorizeExpense(description.trim(), financeType)
+                _categorizationUiState.value = CategorizationUiState.Success(result)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _categorizationUiState.value = CategorizationUiState.Error(
+                    e.localizedMessage ?: "Gagal menganalisis kategori dengan Gemini AI."
+                )
+            }
+        }
+    }
+
+    fun resetCategorizationState() {
+        _categorizationUiState.value = CategorizationUiState.Idle
+    }
+
     fun toggleDebtLoanSettled(item: DebtLoanItem) {
         viewModelScope.launch {
-            repository.updateDebtLoan(item.copy(isSettled = !item.isSettled))
+            val nowSettled = !item.isSettled
+            val updated = item.copy(
+                isSettled = nowSettled,
+                paidAmount = if (nowSettled) item.amount else if (item.paidAmount >= item.amount) 0.0 else item.paidAmount
+            )
+            repository.updateDebtLoan(updated)
             addXp(40)
+        }
+    }
+
+    fun recordDebtPayment(item: DebtLoanItem, paymentAmount: Double) {
+        if (paymentAmount <= 0.0) return
+        viewModelScope.launch {
+            val updated = repository.recordDebtPayment(item, paymentAmount)
+            val xpEarned = if (updated.isSettled) 45 else 25
+            addXp(xpEarned)
+            SyncManager.pushCustomNotification(
+                title = if (updated.isSettled) "✅ Utang/Piutang Lunas!" else "💳 Cicilan Tercatat",
+                message = if (updated.isSettled) {
+                    "Catatan ${updated.personName} telah dibayar 100% lunas (+${xpEarned} XP)."
+                } else {
+                    "Pembayaran untuk ${updated.personName} kini ${(updated.progressFraction * 100).toInt()}% terbayar."
+                },
+                type = "SYNC"
+            )
         }
     }
 
@@ -512,9 +752,17 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
         _selectedDictLanguage.value = lang
     }
 
-    // Daily Crossword Game State
+    // Daily Crossword Game State (Powered by Gemini API + Theme Customization)
     val todayDateStr: String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-    val dailyCrossword = LanguageLessonProvider.getCrosswordForDate(todayDateStr)
+
+    private val _dailyCrossword = MutableStateFlow(LanguageLessonProvider.getCrosswordForDate(todayDateStr))
+    val dailyCrossword: StateFlow<CrosswordPuzzle> = _dailyCrossword.asStateFlow()
+
+    private val _crosswordTheme = MutableStateFlow("Otomatis Harian")
+    val crosswordTheme: StateFlow<String> = _crosswordTheme.asStateFlow()
+
+    private val _crosswordUiState = MutableStateFlow<CrosswordGenerationState>(CrosswordGenerationState.Idle)
+    val crosswordUiState: StateFlow<CrosswordGenerationState> = _crosswordUiState.asStateFlow()
 
     private val _crosswordAnswers = MutableStateFlow<Map<Int, String>>(emptyMap())
     val crosswordAnswers: StateFlow<Map<Int, String>> = _crosswordAnswers.asStateFlow()
@@ -522,22 +770,79 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
     private val _isCrosswordCompleted = MutableStateFlow(false)
     val isCrosswordCompleted: StateFlow<Boolean> = _isCrosswordCompleted.asStateFlow()
 
+    fun setCrosswordTheme(theme: String) {
+        _crosswordTheme.value = theme
+    }
+
+    fun generateAiDailyCrossword(theme: String = _crosswordTheme.value) {
+        _crosswordTheme.value = theme
+        viewModelScope.launch {
+            _crosswordUiState.value = CrosswordGenerationState.Loading
+            try {
+                val aiPuzzle = GeminiAiService.generateDailyCrossword(
+                    dateStr = todayDateStr,
+                    theme = theme
+                )
+                _dailyCrossword.value = aiPuzzle
+                _crosswordAnswers.value = emptyMap()
+                _isCrosswordCompleted.value = false
+                _crosswordUiState.value = CrosswordGenerationState.Success(aiPuzzle, isAiGenerated = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _crosswordUiState.value = CrosswordGenerationState.Error(
+                    e.localizedMessage ?: "Gagal membuat teka-teki harian dengan Gemini AI. Periksa koneksi internet."
+                )
+            }
+        }
+    }
+
     fun updateCrosswordAnswer(clueNumber: Int, text: String) {
+        val currentPuzzle = _dailyCrossword.value
         val map = _crosswordAnswers.value.toMutableMap()
         map[clueNumber] = text.uppercase(Locale.getDefault())
         _crosswordAnswers.value = map
 
-        val allCorrect = dailyCrossword.clues.all { clue ->
+        val allCorrect = currentPuzzle.clues.isNotEmpty() && currentPuzzle.clues.all { clue ->
             map[clue.number]?.equals(clue.answer, ignoreCase = true) == true
         }
         if (allCorrect && !_isCrosswordCompleted.value) {
             _isCrosswordCompleted.value = true
-            addXp(dailyCrossword.xpReward)
+            addXp(currentPuzzle.xpReward)
+            viewModelScope.launch {
+                val newlyUnlocked = repository.recordLanguageBadgeProgress(
+                    vocabDelta = 1,
+                    crosswordSolved = true
+                )
+                newlyUnlocked.forEach { badge ->
+                    addXp(badge.xpReward)
+                    SyncManager.pushCustomNotification(
+                        title = "${badge.iconEmoji} Lencana Baru Terbuka!",
+                        message = "Selamat! Kamu meraih lencana \"${badge.title}\" (+${badge.xpReward} XP).",
+                        type = "CHALLENGE"
+                    )
+                }
+            }
             SyncManager.pushCustomNotification(
                 title = "🎉 Selamat! Teka-Teki Silang Selesai",
-                message = "Kamu menyelesaikan teka-teki hari ini dan mendapatkan +${dailyCrossword.xpReward} XP!",
+                message = "Kamu menyelesaikan teka-teki hari ini dan mendapatkan +${currentPuzzle.xpReward} XP!",
                 type = "CHALLENGE"
             )
+        }
+    }
+
+    fun recordLanguageLessonCompletion() {
+        viewModelScope.launch {
+            val newlyUnlocked = repository.recordLanguageBadgeProgress(vocabDelta = 1, crosswordSolved = false)
+            addXp(40)
+            newlyUnlocked.forEach { badge ->
+                addXp(badge.xpReward)
+                SyncManager.pushCustomNotification(
+                    title = "${badge.iconEmoji} Lencana Bahasa Terbuka!",
+                    message = "Lencana \"${badge.title}\" berhasil kamu buka (+${badge.xpReward} XP)!",
+                    type = "CHALLENGE"
+                )
+            }
         }
     }
 
@@ -611,6 +916,17 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
     private val _generatedPhotoResult = MutableStateFlow<AiGalleryItem?>(null)
     val generatedPhotoResult: StateFlow<AiGalleryItem?> = _generatedPhotoResult.asStateFlow()
 
+    private val _capturedPhotoUri = MutableStateFlow<Uri?>(null)
+    val capturedPhotoUri: StateFlow<Uri?> = _capturedPhotoUri.asStateFlow()
+
+    fun setCapturedPhotoUri(uri: Uri?) {
+        _capturedPhotoUri.value = uri
+    }
+
+    fun clearCapturedPhotoUri() {
+        _capturedPhotoUri.value = null
+    }
+
     fun saveToAiGallery(
         title: String,
         prompt: String,
@@ -619,7 +935,8 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
         isTransformation: Boolean,
         ratio: String = "1:1",
         colorPrimary: Long = 0xFF6366F1,
-        colorSecondary: Long = 0xFF8B5CF6
+        colorSecondary: Long = 0xFF8B5CF6,
+        imageUri: String? = _capturedPhotoUri.value?.toString()
     ) {
         val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())
         val newItem = AiGalleryItem(
@@ -631,7 +948,8 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
             dateStr = dateStr,
             isTransformation = isTransformation,
             colorPrimary = colorPrimary,
-            colorSecondary = colorSecondary
+            colorSecondary = colorSecondary,
+            imageUri = imageUri
         )
         _aiGallery.value = listOf(newItem) + _aiGallery.value
         addXp(35)
@@ -811,12 +1129,8 @@ class MyEvoViewModel(application: Application) : AndroidViewModel(application) {
     private val _adminNotificationMsg = MutableStateFlow("")
     val adminNotificationMsg: StateFlow<String> = _adminNotificationMsg.asStateFlow()
 
-    fun authenticateAdmin(pin: String): Boolean {
-        if (pin == "admin123" || pin == "8888") {
-            _isAdminAuthenticated.value = true
-            return true
-        }
-        return false
+    fun markAdminAuthenticated(authenticated: Boolean) {
+        _isAdminAuthenticated.value = authenticated
     }
 
     fun logoutAdmin() {
